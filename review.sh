@@ -646,13 +646,23 @@ gitlab_clone_mr() {
     git clone --depth=50 --quiet "$clone_url" "$clone_dir" 2>/dev/null || return 1
   fi
 
-  # Checkout source branch (fetch it if not available locally)
+  # Fetch source branch with explicit refspec (creates remote tracking ref)
+  log "  Fetching branch ${source_branch}..."
+  local fetch_err
+  fetch_err="$(cd "$clone_dir" && git fetch origin "+refs/heads/${source_branch}:refs/remotes/origin/${source_branch}" --depth=50 2>&1)" || {
+    log "  ERROR fetching branch: ${fetch_err}"
+    return 1
+  }
+
   log "  Checking out branch ${source_branch}..."
-  (cd "$clone_dir" && git fetch origin "$source_branch" --quiet 2>/dev/null \
-    && git checkout -B "$source_branch" "origin/$source_branch" --quiet 2>/dev/null) || return 1
+  local checkout_err
+  checkout_err="$(cd "$clone_dir" && git checkout -B "$source_branch" "origin/$source_branch" 2>&1)" || {
+    log "  ERROR checking out branch: ${checkout_err}"
+    return 1
+  }
 
   # Fetch the target branch for diffing
-  (cd "$clone_dir" && git fetch origin "$target_branch" --quiet 2>/dev/null) || true
+  (cd "$clone_dir" && git fetch origin "+refs/heads/${target_branch}:refs/remotes/origin/${target_branch}" --depth=50 --quiet 2>/dev/null) || true
 
   return 0
 }
