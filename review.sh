@@ -225,7 +225,7 @@ github_build_builtin_prompt() {
   fi
 
   cat <<PROMPT
-You are a code reviewer performing a pre-landing review. Analyze the diff for structural issues that tests don't catch.
+You are a code reviewer. Review this PR diff and post your findings as INLINE comments on the exact lines where issues occur.
 
 ## Repository: ${repo}
 ## PR #${pr_number}
@@ -235,23 +235,48 @@ ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Read-only.** Do not modify any files. Only post comments.
-- **Be terse.** One line problem, one line fix. No preamble, no "looks good overall."
 - **Only flag real problems.** Skip anything that's fine.
+- **Be terse.** One line problem, one line fix.
 
-## Instructions
-1. Review the diff below against the checklist in two passes:
-   - **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, Injection & Trust Boundaries
-   - **Pass 2 (INFORMATIONAL):** All remaining categories
-2. For each issue found, post an inline comment on the specific line:
-   \`\`\`
-   gh api repos/${repo}/pulls/${pr_number}/comments -f body="<your comment>" -f commit_id="${head_sha}" -f path="<file_path>" -f side="RIGHT" -F line=<line_number>
-   \`\`\`
-3. After all inline comments, post a summary comment using the output format from the checklist:
-   \`\`\`
-   gh api repos/${repo}/issues/${pr_number}/comments -f body="<summary>"
-   \`\`\`
-4. The summary should start with one of: **LGTM**, **Approve with comments**, or **Request changes** (use Request changes only for CRITICAL issues).
+## How to Read the Diff
+The diff below shows changed files. Each hunk header looks like:
+  \`@@ -old_start,old_count +new_start,new_count @@ context\`
+Lines starting with \`+\` are additions (new code). The line number for inline comments is the position in the NEW file. Count from \`new_start\` in the hunk header, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
+
+## CRITICAL: Post Inline Comments on Specific Lines
+For EVERY issue you find, you MUST post it as an inline comment on the exact line where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments and only post a summary.
+
+**For each issue, run this command** (replace the placeholders):
+\`\`\`
+gh api repos/${repo}/pulls/${pr_number}/comments \\
+  -f body="**[CRITICAL]** or **[INFO]**: <one-line description of the issue>
+Fix: <suggested fix>" \\
+  -f commit_id="${head_sha}" \\
+  -f path="<file_path_from_diff>" \\
+  -f side="RIGHT" \\
+  -F line=<line_number_in_new_file>
+\`\`\`
+
+Example: if the diff shows \`+++ b/internal/service/handler.go\` and the issue is on line 42 of the new file:
+\`\`\`
+gh api repos/${repo}/pulls/${pr_number}/comments \\
+  -f body="**[CRITICAL]** SQL injection: user input interpolated into query.
+Fix: Use parameterized query with \\\`db.Query(sql, args...)\\\`" \\
+  -f commit_id="${head_sha}" \\
+  -f path="internal/service/handler.go" \\
+  -f side="RIGHT" \\
+  -F line=42
+\`\`\`
+
+## After All Inline Comments
+Post ONE summary comment with the overall verdict:
+\`\`\`
+gh api repos/${repo}/issues/${pr_number}/comments -f body="<summary>"
+\`\`\`
+The summary should:
+- Start with **LGTM**, **Approve with comments**, or **Request changes**
+- List the count: "N issues (X critical, Y informational)"
+- Use **Request changes** only if CRITICAL issues were found
 ${greptile_section}
 
 ## Diff
@@ -314,16 +339,29 @@ Apply the checklist against the diff in two passes:
 1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, Injection & Trust Boundaries
 2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers, Dead Code, Error Handling, Test Gaps, Performance, API Contracts, LLM Prompt Issues, Crypto & Entropy, Time Window Safety, Type Coercion
 
-### Step 4: Post findings
-1. For each issue found, post an inline comment on the specific line:
-   \`\`\`
-   gh api repos/${repo}/pulls/${pr_number}/comments -f body="<your comment>" -f commit_id="${head_sha}" -f path="<file_path>" -f side="RIGHT" -F line=<line_number>
-   \`\`\`
-2. After all inline comments, post a summary comment using the output format from the checklist:
-   \`\`\`
-   gh api repos/${repo}/issues/${pr_number}/comments -f body="<summary>"
-   \`\`\`
-3. The summary should start with one of: **LGTM**, **Approve with comments**, or **Request changes** (use Request changes only for CRITICAL issues).
+### Step 4: Post INLINE Comments on Specific Lines
+CRITICAL: For EVERY issue you find, you MUST post it as an inline comment on the exact line of code where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments.
+
+**For each issue, run this command** (replace placeholders):
+\`\`\`
+gh api repos/${repo}/pulls/${pr_number}/comments \\
+  -f body="**[CRITICAL]** or **[INFO]**: <one-line problem>
+Fix: <suggested fix>" \\
+  -f commit_id="${head_sha}" \\
+  -f path="<file_path_from_diff>" \\
+  -f side="RIGHT" \\
+  -F line=<line_number_in_new_file>
+\`\`\`
+
+The \`path\` is from the diff header (\`+++ b/path/to/file.go\` → use \`path/to/file.go\`).
+The \`line\` is the line number in the new version of the file. Read it from the diff hunk header \`@@ -old,count +new_start,count @@\` and count forward for non-deletion lines.
+
+### Step 5: Post Summary
+After all inline comments, post ONE summary:
+\`\`\`
+gh api repos/${repo}/issues/${pr_number}/comments -f body="<summary>"
+\`\`\`
+Start with **LGTM**, **Approve with comments**, or **Request changes** (only for CRITICAL issues).
 ${greptile_section}
 PROMPT
 }
@@ -388,7 +426,7 @@ gitlab_build_builtin_prompt() {
   start_sha="$(echo "$diff_refs" | jq -r '.start_commit_sha')"
 
   cat <<PROMPT
-You are a code reviewer performing a pre-landing review. Analyze the diff for structural issues that tests don't catch.
+You are a code reviewer. Review this MR diff and post your findings as INLINE comments on the exact lines where issues occur.
 
 ## Project ID: ${project_id}
 ## MR !${mr_iid}
@@ -398,23 +436,44 @@ ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Read-only.** Do not modify any files. Only post comments.
-- **Be terse.** One line problem, one line fix. No preamble, no "looks good overall."
 - **Only flag real problems.** Skip anything that's fine.
+- **Be terse.** One line problem, one line fix.
 
-## Instructions
-1. Review the diff below against the checklist in two passes:
-   - **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, Injection & Trust Boundaries
-   - **Pass 2 (INFORMATIONAL):** All remaining categories
-2. For each issue found, post an inline comment:
-   \`\`\`
-   glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -f body="<your comment>" -f "position[position_type]=text" -f "position[base_sha]=${base_sha}" -f "position[head_sha]=${head_sha}" -f "position[start_sha]=${start_sha}" -f "position[new_path]=<file_path>" -f "position[new_line]=<line_number>"
-   \`\`\`
-3. After all inline comments, post a summary comment using the output format from the checklist:
-   \`\`\`
-   glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -f body="<summary>"
-   \`\`\`
-4. The summary should start with one of: **LGTM**, **Approve with comments**, or **Request changes** (use Request changes only for CRITICAL issues).
+## How to Read the Diff
+The diff below shows changed files. Each hunk header looks like:
+  \`@@ -old_start,old_count +new_start,new_count @@ context\`
+Lines starting with \`+\` are additions (new code). The line number for inline comments is the position in the NEW file. Count from \`new_start\` in the hunk header, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
+
+## CRITICAL: Post Inline Comments on Specific Lines
+For EVERY issue you find, you MUST post it as an inline comment on the exact line where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments and only post a summary.
+
+**For each issue, run this command** (replace the placeholders):
+\`\`\`
+glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \\
+  -f body="**[CRITICAL]** or **[INFO]**: <one-line description>
+Fix: <suggested fix>" \\
+  -f "position[position_type]=text" \\
+  -f "position[base_sha]=${base_sha}" \\
+  -f "position[head_sha]=${head_sha}" \\
+  -f "position[start_sha]=${start_sha}" \\
+  -f "position[new_path]=<file_path>" \\
+  -F "position[new_line]=<line_number_in_new_file>"
+\`\`\`
+
+The \`new_path\` is from the diff header (\`+++ b/path/to/file.go\` → use \`path/to/file.go\`).
+The \`new_line\` is the line number in the new version of the file. Read it from the diff hunk header \`@@ -old,count +new_start,count @@\` and count forward for non-deletion lines.
+
+Example: if diff shows \`+++ b/internal/handler.go\` with hunk \`@@ -10,5 +10,8 @@\` and the issue is on the 3rd non-deletion line in the hunk, the line number is 12 (10+2).
+
+## After All Inline Comments
+Post ONE summary comment with the overall verdict:
+\`\`\`
+glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -f body="<summary>"
+\`\`\`
+The summary should:
+- Start with **LGTM**, **Approve with comments**, or **Request changes**
+- List the count: "N issues (X critical, Y informational)"
+- Use **Request changes** only if CRITICAL issues were found
 
 ## Diff
 \`\`\`diff
@@ -466,16 +525,31 @@ Apply the checklist against the diff in two passes:
 1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, Injection & Trust Boundaries
 2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers, Dead Code, Error Handling, Test Gaps, Performance, API Contracts, LLM Prompt Issues, Crypto & Entropy, Time Window Safety, Type Coercion
 
-### Step 4: Post findings
-1. For each issue found, post an inline comment:
-   \`\`\`
-   glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -f body="<your comment>" -f "position[position_type]=text" -f "position[base_sha]=${base_sha}" -f "position[head_sha]=${head_sha}" -f "position[start_sha]=${start_sha}" -f "position[new_path]=<file_path>" -f "position[new_line]=<line_number>"
-   \`\`\`
-2. After all inline comments, post a summary comment using the output format from the checklist:
-   \`\`\`
-   glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -f body="<summary>"
-   \`\`\`
-3. The summary should start with one of: **LGTM**, **Approve with comments**, or **Request changes** (use Request changes only for CRITICAL issues).
+### Step 4: Post INLINE Comments on Specific Lines
+CRITICAL: For EVERY issue you find, you MUST post it as an inline comment on the exact line of code where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments.
+
+**For each issue, run this command** (replace placeholders):
+\`\`\`
+glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \\
+  -f body="**[CRITICAL]** or **[INFO]**: <one-line problem>
+Fix: <suggested fix>" \\
+  -f "position[position_type]=text" \\
+  -f "position[base_sha]=${base_sha}" \\
+  -f "position[head_sha]=${head_sha}" \\
+  -f "position[start_sha]=${start_sha}" \\
+  -f "position[new_path]=<file_path>" \\
+  -F "position[new_line]=<line_number_in_new_file>"
+\`\`\`
+
+The \`new_path\` is from the diff header (\`+++ b/path/to/file.go\` → use \`path/to/file.go\`).
+The \`new_line\` is the line number in the new version of the file. From the \`git diff\` output, read the hunk header \`@@ -old,count +new_start,count @@\` and count forward for non-deletion lines.
+
+### Step 5: Post Summary
+After all inline comments, post ONE summary:
+\`\`\`
+glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -f body="<summary>"
+\`\`\`
+Start with **LGTM**, **Approve with comments**, or **Request changes** (only for CRITICAL issues).
 PROMPT
 }
 
