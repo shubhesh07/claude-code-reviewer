@@ -68,7 +68,7 @@ detect_username() {
   fi
   case "$platform" in
     github) gh api user --jq '.login' 2>/dev/null || die "Cannot detect GitHub username. Set USERNAME in config.env." ;;
-    gitlab) glab api user --jq '.username' 2>/dev/null || die "Cannot detect GitLab username. Set USERNAME in config.env." ;;
+    gitlab) glab api user 2>/dev/null | jq -r '.username' || die "Cannot detect GitLab username. Set USERNAME in config.env." ;;
   esac
 }
 
@@ -341,43 +341,43 @@ gitlab_list_mrs() {
     *)        die "Invalid REVIEW_ROLE: $REVIEW_ROLE" ;;
   esac
 
-  glab api "$endpoint" --jq '.[] | {
+  glab api "$endpoint" 2>/dev/null | jq -c '.[] | {
     url: .web_url,
     iid: .iid,
     title: .title,
     project_id: .project_id,
-    project_path: .references.full | split("!")[0],
     source_branch: .source_branch,
-    target_branch: .target_branch,
-    diff_refs: .diff_refs
+    target_branch: .target_branch
   }' 2>/dev/null || echo ""
 }
 
 gitlab_get_diff() {
   local project_id="$1" mr_iid="$2"
   local version_id
-  version_id="$(glab api "projects/${project_id}/merge_requests/${mr_iid}/versions" \
-    --jq '.[0].id' 2>/dev/null)" || { echo ""; return; }
+  version_id="$(glab api "projects/${project_id}/merge_requests/${mr_iid}/versions" 2>/dev/null \
+    | jq -r '.[0].id')" || { echo ""; return; }
 
-  glab api "projects/${project_id}/merge_requests/${mr_iid}/versions/${version_id}" \
-    --jq '.diffs[] | "--- a/\(.old_path)\n+++ b/\(.new_path)\n\(.diff)"' 2>/dev/null || echo ""
+  [[ -z "$version_id" || "$version_id" == "null" ]] && { echo ""; return; }
+
+  glab api "projects/${project_id}/merge_requests/${mr_iid}/versions/${version_id}" 2>/dev/null \
+    | jq -r '.diffs[] | "--- a/\(.old_path)\n+++ b/\(.new_path)\n\(.diff)"' 2>/dev/null || echo ""
 }
 
 gitlab_get_file_count() {
   local project_id="$1" mr_iid="$2"
-  glab api "projects/${project_id}/merge_requests/${mr_iid}/changes" \
-    --jq '.changes | length' 2>/dev/null || echo "0"
+  glab api "projects/${project_id}/merge_requests/${mr_iid}/changes" 2>/dev/null \
+    | jq '.changes | length' 2>/dev/null || echo "0"
 }
 
 gitlab_get_diff_refs() {
   local project_id="$1" mr_iid="$2"
-  glab api "projects/${project_id}/merge_requests/${mr_iid}/versions" \
-    --jq '.[0] | {base_commit_sha, head_commit_sha, start_commit_sha}' 2>/dev/null || echo ""
+  glab api "projects/${project_id}/merge_requests/${mr_iid}/versions" 2>/dev/null \
+    | jq -c '.[0] | {base_commit_sha, head_commit_sha, start_commit_sha}' 2>/dev/null || echo ""
 }
 
 gitlab_get_clone_url() {
   local project_id="$1"
-  glab api "projects/${project_id}" --jq '.http_url_to_repo' 2>/dev/null || echo ""
+  glab api "projects/${project_id}" 2>/dev/null | jq -r '.http_url_to_repo' 2>/dev/null || echo ""
 }
 
 gitlab_build_builtin_prompt() {
