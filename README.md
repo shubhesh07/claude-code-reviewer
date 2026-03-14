@@ -1,5 +1,10 @@
 # claude-code-reviewer
 
+[![GitHub stars](https://img.shields.io/github/stars/shubhesh07/claude-code-reviewer?style=social)](https://github.com/shubhesh07/claude-code-reviewer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub](https://img.shields.io/badge/GitHub-supported-blue)](https://github.com)
+[![GitLab](https://img.shields.io/badge/GitLab-supported-orange)](https://gitlab.com)
+
 Automatic PR/MR code reviews powered by Claude Code CLI. Clone, run setup, and every open pull request or merge request assigned to you gets reviewed automatically.
 
 Uses the [gstack](https://github.com/garrytan/gstack) two-pass review methodology by default — CRITICAL issues (SQL safety, race conditions, injection) block, INFORMATIONAL issues (dead code, test gaps, performance) are noted but non-blocking.
