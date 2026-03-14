@@ -447,28 +447,58 @@ Lines starting with \`+\` are additions (new code). The line number for inline c
 ## CRITICAL: Post Inline Comments on Specific Lines
 For EVERY issue you find, you MUST post it as an inline comment on the exact line where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments and only post a summary.
 
-**For each issue, run this command** (replace the placeholders):
-\`\`\`
-glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \\
-  -f body="**[CRITICAL]** or **[INFO]**: <one-line description>
+**For each issue, construct a JSON body with \`jq\` and pipe it to \`glab api\`:**
+\`\`\`bash
+jq -n \\
+  --arg body "**[CRITICAL]** or **[INFO]**: <one-line description>
 Fix: <suggested fix>" \\
-  -f "position[position_type]=text" \\
-  -f "position[base_sha]=${base_sha}" \\
-  -f "position[head_sha]=${head_sha}" \\
-  -f "position[start_sha]=${start_sha}" \\
-  -f "position[new_path]=<file_path>" \\
-  -F "position[new_line]=<line_number_in_new_file>"
+  --arg path "<file_path_from_diff>" \\
+  --argjson line <line_number_in_new_file> \\
+  '{
+    body: \$body,
+    position: {
+      position_type: "text",
+      base_sha: "${base_sha}",
+      head_sha: "${head_sha}",
+      start_sha: "${start_sha}",
+      new_path: \$path,
+      old_path: \$path,
+      new_line: \$line
+    }
+  }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -X POST --input -
 \`\`\`
 
-The \`new_path\` is from the diff header (\`+++ b/path/to/file.go\` → use \`path/to/file.go\`).
-The \`new_line\` is the line number in the new version of the file. Read it from the diff hunk header \`@@ -old,count +new_start,count @@\` and count forward for non-deletion lines.
+**How to determine \`path\` and \`line\`:**
+- \`path\`: from the diff header \`+++ b/path/to/file.go\` → use \`path/to/file.go\` (without the \`b/\` prefix)
+- \`line\`: the line number in the NEW version of the file. Read the hunk header \`@@ -old_start,old_count +new_start,new_count @@\`, then count from \`new_start\`, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
 
-Example: if diff shows \`+++ b/internal/handler.go\` with hunk \`@@ -10,5 +10,8 @@\` and the issue is on the 3rd non-deletion line in the hunk, the line number is 12 (10+2).
+**Example:** if diff shows \`+++ b/internal/types/response.go\` with hunk \`@@ -29,10 +29,10 @@\` and the issue is on the 7th non-deletion line in the hunk:
+\`\`\`bash
+jq -n \\
+  --arg body "**[CRITICAL]**: JSON tag typo breaks API contract.
+Fix: Change to correct tag value." \\
+  --arg path "internal/types/response.go" \\
+  --argjson line 35 \\
+  '{
+    body: \$body,
+    position: {
+      position_type: "text",
+      base_sha: "${base_sha}",
+      head_sha: "${head_sha}",
+      start_sha: "${start_sha}",
+      new_path: \$path,
+      old_path: \$path,
+      new_line: \$line
+    }
+  }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -X POST --input -
+\`\`\`
+
+**IMPORTANT:** You MUST use this exact \`jq | glab api --input -\` pattern. Do NOT use \`-f "position[...]"\` flags — they produce flat JSON keys instead of nested objects, causing comments to appear in the Overview instead of on the code line.
 
 ## After All Inline Comments
 Post ONE summary comment with the overall verdict:
-\`\`\`
-glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -f body="<summary>"
+\`\`\`bash
+glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="<summary>"
 \`\`\`
 The summary should:
 - Start with **LGTM**, **Approve with comments**, or **Request changes**
@@ -528,26 +558,37 @@ Apply the checklist against the diff in two passes:
 ### Step 4: Post INLINE Comments on Specific Lines
 CRITICAL: For EVERY issue you find, you MUST post it as an inline comment on the exact line of code where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments.
 
-**For each issue, run this command** (replace placeholders):
-\`\`\`
-glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \\
-  -f body="**[CRITICAL]** or **[INFO]**: <one-line problem>
+**For each issue, construct a JSON body with \`jq\` and pipe it to \`glab api\`:**
+\`\`\`bash
+jq -n \\
+  --arg body "**[CRITICAL]** or **[INFO]**: <one-line problem>
 Fix: <suggested fix>" \\
-  -f "position[position_type]=text" \\
-  -f "position[base_sha]=${base_sha}" \\
-  -f "position[head_sha]=${head_sha}" \\
-  -f "position[start_sha]=${start_sha}" \\
-  -f "position[new_path]=<file_path>" \\
-  -F "position[new_line]=<line_number_in_new_file>"
+  --arg path "<file_path_from_diff>" \\
+  --argjson line <line_number_in_new_file> \\
+  '{
+    body: \$body,
+    position: {
+      position_type: "text",
+      base_sha: "${base_sha}",
+      head_sha: "${head_sha}",
+      start_sha: "${start_sha}",
+      new_path: \$path,
+      old_path: \$path,
+      new_line: \$line
+    }
+  }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -X POST --input -
 \`\`\`
 
-The \`new_path\` is from the diff header (\`+++ b/path/to/file.go\` → use \`path/to/file.go\`).
-The \`new_line\` is the line number in the new version of the file. From the \`git diff\` output, read the hunk header \`@@ -old,count +new_start,count @@\` and count forward for non-deletion lines.
+**How to determine \`path\` and \`line\`:**
+- \`path\`: from \`git diff\` output, look at \`+++ b/path/to/file.go\` → use \`path/to/file.go\`
+- \`line\`: from the hunk header \`@@ -old_start,old_count +new_start,new_count @@\`, count from \`new_start\`, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
+
+**IMPORTANT:** You MUST use this exact \`jq | glab api --input -\` pattern. Do NOT use \`-f "position[...]"\` flags — they produce flat JSON keys instead of nested objects, causing comments to appear in the Overview instead of on the code line.
 
 ### Step 5: Post Summary
 After all inline comments, post ONE summary:
-\`\`\`
-glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -f body="<summary>"
+\`\`\`bash
+glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="<summary>"
 \`\`\`
 Start with **LGTM**, **Approve with comments**, or **Request changes** (only for CRITICAL issues).
 PROMPT
@@ -555,42 +596,65 @@ PROMPT
 
 # ─── Clone Helpers (gstack mode) ──────────────────────────────────────────────
 
-github_clone_pr() {
-  local repo="$1" pr_number="$2" tmpdir="$3"
+# Persistent clone cache — clone once, fetch on subsequent reviews
+CACHE_DIR="${HOME}/.claude-code-reviewer/repos"
 
-  log "  Cloning ${repo} (shallow)..."
-  gh repo clone "$repo" "$tmpdir" -- --depth=1 --single-branch --quiet 2>/dev/null || return 1
+github_clone_pr() {
+  local repo="$1" pr_number="$2" clone_dir="$3"
+
+  if [[ -d "$clone_dir/.git" ]]; then
+    log "  Using cached clone for ${repo} — fetching latest..."
+    (cd "$clone_dir" && git fetch origin --quiet 2>/dev/null) || {
+      log "  Fetch failed, re-cloning..."
+      rm -rf "$clone_dir"
+    }
+  fi
+
+  if [[ ! -d "$clone_dir/.git" ]]; then
+    log "  Cloning ${repo} (first time, shallow)..."
+    mkdir -p "$(dirname "$clone_dir")"
+    gh repo clone "$repo" "$clone_dir" -- --depth=50 --quiet 2>/dev/null || return 1
+  fi
 
   log "  Checking out PR #${pr_number}..."
-  (cd "$tmpdir" && gh pr checkout "$pr_number" --force 2>/dev/null) || return 1
+  (cd "$clone_dir" && gh pr checkout "$pr_number" --force 2>/dev/null) || return 1
 
   return 0
 }
 
 gitlab_clone_mr() {
-  local project_id="$1" mr_iid="$2" source_branch="$3" target_branch="$4" tmpdir="$5"
+  local project_id="$1" mr_iid="$2" source_branch="$3" target_branch="$4" clone_dir="$5"
 
-  local clone_url
-  clone_url="$(gitlab_get_clone_url "$project_id")"
-  if [[ -z "$clone_url" ]]; then
-    log "  Cannot get clone URL for project ${project_id}"
-    return 1
+  if [[ -d "$clone_dir/.git" ]]; then
+    log "  Using cached clone — fetching latest..."
+    (cd "$clone_dir" && git fetch origin --quiet 2>/dev/null) || {
+      log "  Fetch failed, re-cloning..."
+      rm -rf "$clone_dir"
+    }
   fi
 
-  log "  Cloning project ${project_id} (shallow)..."
-  git clone --depth=1 --single-branch --branch "$source_branch" --quiet "$clone_url" "$tmpdir" 2>/dev/null || return 1
+  if [[ ! -d "$clone_dir/.git" ]]; then
+    local clone_url
+    clone_url="$(gitlab_get_clone_url "$project_id")"
+    if [[ -z "$clone_url" ]]; then
+      log "  Cannot get clone URL for project ${project_id}"
+      return 1
+    fi
 
-  # Fetch the target branch for diffing (minimal depth)
-  (cd "$tmpdir" && git fetch origin "$target_branch" --depth=1 --quiet 2>/dev/null) || true
+    log "  Cloning project ${project_id} (first time, shallow)..."
+    mkdir -p "$(dirname "$clone_dir")"
+    git clone --depth=50 --quiet "$clone_url" "$clone_dir" 2>/dev/null || return 1
+  fi
+
+  # Checkout source branch (fetch it if not available locally)
+  log "  Checking out branch ${source_branch}..."
+  (cd "$clone_dir" && git fetch origin "$source_branch" --quiet 2>/dev/null \
+    && git checkout -B "$source_branch" "origin/$source_branch" --quiet 2>/dev/null) || return 1
+
+  # Fetch the target branch for diffing
+  (cd "$clone_dir" && git fetch origin "$target_branch" --quiet 2>/dev/null) || true
 
   return 0
-}
-
-cleanup_tmpdir() {
-  local tmpdir="$1"
-  if [[ -n "$tmpdir" && -d "$tmpdir" ]]; then
-    rm -rf "$tmpdir"
-  fi
 }
 
 # ─── Review Engine ─────────────────────────────────────────────────────────────
@@ -610,8 +674,8 @@ run_claude() {
   local workdir="${2:-}"
   local mode="${3:-builtin}"
 
-  # Base tools: platform CLIs for posting comments
-  local tools=("Bash(gh:*)" "Bash(glab:*)")
+  # Base tools: platform CLIs for posting comments + jq for constructing JSON
+  local tools=("Bash(gh:*)" "Bash(glab:*)" "Bash(jq:*)")
 
   if [[ "$mode" == "gstack" ]]; then
     # gstack mode: Claude needs git, file reading, and search for full context
@@ -627,12 +691,25 @@ run_claude() {
     cmd+=(--model "$CLAUDE_MODEL")
   fi
 
-  # Stream output to terminal in real-time (tee to both stdout and log)
+  local prompt_size=${#prompt}
+  log "  Sending prompt to Claude (${prompt_size} chars, mode: ${mode})..."
+  log "  Claude is reviewing — this may take 1-3 minutes..."
+
+  # Stream both stdout and stderr to terminal
   if [[ "$mode" == "gstack" && -n "$workdir" ]]; then
-    (cd "$workdir" && echo "$prompt" | "${cmd[@]}")
+    (cd "$workdir" && echo "$prompt" | "${cmd[@]}") 2>&1
   else
-    echo "$prompt" | "${cmd[@]}"
+    echo "$prompt" | "${cmd[@]}" 2>&1
   fi
+  local exit_code=$?
+
+  if [[ $exit_code -eq 0 ]]; then
+    log "  Claude finished successfully."
+  else
+    log "  Claude exited with code ${exit_code}."
+  fi
+
+  return $exit_code
 }
 
 review_github() {
@@ -680,15 +757,15 @@ review_github() {
       continue
     fi
 
-    local prompt tmpdir=""
+    local prompt clone_dir=""
     local review_ok=false
 
     if [[ "$REVIEW_TOOL" == "gstack" ]]; then
-      # gstack mode: clone repo for full source context
-      tmpdir="$(mktemp -d)"
-      if github_clone_pr "$repo" "$pr_number" "$tmpdir"; then
+      # gstack mode: use cached clone for full source context
+      clone_dir="${CACHE_DIR}/github/${repo}"
+      if github_clone_pr "$repo" "$pr_number" "$clone_dir"; then
         prompt="$(github_build_gstack_prompt "$repo" "$pr_number" "$pr_info")"
-        if run_claude "$prompt" "$tmpdir" "gstack"; then
+        if run_claude "$prompt" "$clone_dir" "gstack"; then
           review_ok=true
         fi
       else
@@ -702,7 +779,6 @@ review_github() {
           fi
         fi
       fi
-      cleanup_tmpdir "$tmpdir"
     else
       # builtin mode: diff-only review
       local diff
@@ -773,6 +849,7 @@ review_gitlab() {
 
     log "Reviewing MR !${mr_iid}: ${title} (${file_count} files) [${REVIEW_TOOL} mode]"
 
+    log "  Fetching diff refs..."
     local diff_refs
     diff_refs="$(gitlab_get_diff_refs "$project_id" "$mr_iid")"
     if [[ -z "$diff_refs" ]]; then
@@ -780,31 +857,34 @@ review_gitlab() {
       continue
     fi
 
-    local prompt tmpdir=""
+    local prompt clone_dir=""
     local review_ok=false
 
     if [[ "$REVIEW_TOOL" == "gstack" ]]; then
-      # gstack mode: clone repo for full source context
-      tmpdir="$(mktemp -d)"
-      if gitlab_clone_mr "$project_id" "$mr_iid" "$source_branch" "$target_branch" "$tmpdir"; then
+      # gstack mode: use cached clone for full source context
+      clone_dir="${CACHE_DIR}/gitlab/${project_id}"
+      if gitlab_clone_mr "$project_id" "$mr_iid" "$source_branch" "$target_branch" "$clone_dir"; then
+        log "  Building gstack prompt..."
         prompt="$(gitlab_build_gstack_prompt "$project_id" "$mr_iid" "$diff_refs" "$target_branch")"
-        if run_claude "$prompt" "$tmpdir" "gstack"; then
+        if run_claude "$prompt" "$clone_dir" "gstack"; then
           review_ok=true
         fi
       else
         log "  Clone failed, falling back to builtin mode"
+        log "  Fetching diff via API..."
         local diff
         diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
         if [[ -n "$diff" ]]; then
+          log "  Diff fetched (${#diff} chars). Building prompt..."
           prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
           if run_claude "$prompt" "" "builtin"; then
             review_ok=true
           fi
         fi
       fi
-      cleanup_tmpdir "$tmpdir"
     else
       # builtin mode: diff-only review
+      log "  Fetching diff via API..."
       local diff
       diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
       if [[ -z "$diff" ]]; then
@@ -812,6 +892,7 @@ review_gitlab() {
         mark_reviewed "$url"
         continue
       fi
+      log "  Diff fetched (${#diff} chars). Building prompt..."
       prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
       if run_claude "$prompt" "" "builtin"; then
         review_ok=true
@@ -876,42 +957,47 @@ review_single_github_pr() {
     die "Cannot parse GitHub PR URL: ${url}"
   fi
 
-  log "Reviewing GitHub PR: ${repo}#${pr_number}"
+  log "Reviewing GitHub PR: ${repo}#${pr_number} [${REVIEW_TOOL} mode]"
 
+  log "  Fetching PR info..."
   local pr_info
   pr_info="$(github_get_pr_info "$repo" "$pr_number")"
   if [[ -z "$pr_info" ]]; then
     die "Cannot get PR info for ${url}"
   fi
 
-  local prompt tmpdir=""
+  local prompt clone_dir=""
   local review_ok=false
 
   if [[ "$REVIEW_TOOL" == "gstack" ]]; then
-    tmpdir="$(mktemp -d)"
-    if github_clone_pr "$repo" "$pr_number" "$tmpdir"; then
+    clone_dir="${CACHE_DIR}/github/${repo}"
+    if github_clone_pr "$repo" "$pr_number" "$clone_dir"; then
+      log "  Building gstack prompt..."
       prompt="$(github_build_gstack_prompt "$repo" "$pr_number" "$pr_info")"
-      if run_claude "$prompt" "$tmpdir" "gstack"; then
+      if run_claude "$prompt" "$clone_dir" "gstack"; then
         review_ok=true
       fi
     else
       log "  Clone failed, falling back to builtin mode"
+      log "  Fetching diff via API..."
       local diff
       diff="$(github_get_diff "$repo" "$pr_number")"
       if [[ -n "$diff" ]]; then
+        log "  Diff fetched (${#diff} chars). Building prompt..."
         prompt="$(github_build_builtin_prompt "$repo" "$pr_number" "$diff" "$pr_info")"
         if run_claude "$prompt" "" "builtin"; then
           review_ok=true
         fi
       fi
     fi
-    cleanup_tmpdir "$tmpdir"
   else
+    log "  Fetching diff via API..."
     local diff
     diff="$(github_get_diff "$repo" "$pr_number")"
     if [[ -z "$diff" ]]; then
       die "Empty diff for ${url}"
     fi
+    log "  Diff fetched (${#diff} chars). Building prompt..."
     prompt="$(github_build_builtin_prompt "$repo" "$pr_number" "$diff" "$pr_info")"
     if run_claude "$prompt" "" "builtin"; then
       review_ok=true
@@ -948,42 +1034,48 @@ review_single_gitlab_mr() {
   target_branch="$(echo "$mr_details" | jq -r '.target_branch')"
   title="$(echo "$mr_details" | jq -r '.title')"
 
-  log "Reviewing GitLab MR !${mr_iid}: ${title}"
+  log "Reviewing GitLab MR !${mr_iid}: ${title} [${REVIEW_TOOL} mode]"
 
+  log "  Fetching diff refs..."
   local diff_refs
   diff_refs="$(gitlab_get_diff_refs "$project_id" "$mr_iid")"
   if [[ -z "$diff_refs" ]]; then
     die "Cannot get diff refs for ${url}"
   fi
+  log "  Diff refs: $(echo "$diff_refs" | jq -c '.')"
 
-  local prompt tmpdir=""
+  local prompt clone_dir=""
   local review_ok=false
 
   if [[ "$REVIEW_TOOL" == "gstack" ]]; then
-    tmpdir="$(mktemp -d)"
-    if gitlab_clone_mr "$project_id" "$mr_iid" "$source_branch" "$target_branch" "$tmpdir"; then
+    clone_dir="${CACHE_DIR}/gitlab/${project_id}"
+    if gitlab_clone_mr "$project_id" "$mr_iid" "$source_branch" "$target_branch" "$clone_dir"; then
+      log "  Building gstack prompt..."
       prompt="$(gitlab_build_gstack_prompt "$project_id" "$mr_iid" "$diff_refs" "$target_branch")"
-      if run_claude "$prompt" "$tmpdir" "gstack"; then
+      if run_claude "$prompt" "$clone_dir" "gstack"; then
         review_ok=true
       fi
     else
       log "  Clone failed, falling back to builtin mode"
+      log "  Fetching diff via API..."
       local diff
       diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
       if [[ -n "$diff" ]]; then
+        log "  Diff fetched (${#diff} chars). Building prompt..."
         prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
         if run_claude "$prompt" "" "builtin"; then
           review_ok=true
         fi
       fi
     fi
-    cleanup_tmpdir "$tmpdir"
   else
+    log "  Fetching diff via API..."
     local diff
     diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
     if [[ -z "$diff" ]]; then
       die "Empty diff for ${url}"
     fi
+    log "  Diff fetched (${#diff} chars). Building prompt..."
     prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
     if run_claude "$prompt" "" "builtin"; then
       review_ok=true

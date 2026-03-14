@@ -9,12 +9,19 @@ Works with **GitHub** and **GitLab**. Zero config beyond `./setup.sh`.
 ## Quickstart
 
 ```bash
-git clone https://github.com/yourname/claude-code-reviewer.git
+git clone https://github.com/shubhesh07/claude-code-reviewer.git
 cd claude-code-reviewer
 ./setup.sh
 ```
 
 That's it. Setup detects your platform, authenticates, installs a scheduler, and starts reviewing.
+
+To review a specific PR/MR immediately:
+
+```bash
+./review.sh https://gitlab.com/org/project/-/merge_requests/42
+./review.sh https://github.com/org/repo/pull/123
+```
 
 ## How It Works
 
@@ -31,8 +38,8 @@ Every 15 min (configurable):
             ├── Skip if too many files (> MAX_FILES)
             │
             ├── [gstack mode — default]
-            │     ├── Shallow-clone repo to temp dir
-            │     ├── Checkout PR/MR branch
+            │     ├── Use cached clone (or clone on first run)
+            │     ├── Fetch latest + checkout PR/MR branch
             │     ├── Fetch Greptile bot comments (GitHub, if enabled)
             │     ├── Run `claude -p` with full repo context
             │     │     ├── git fetch + git diff for fresh diff
@@ -40,16 +47,20 @@ Every 15 min (configurable):
             │     │     ├── Two-pass review (CRITICAL → INFORMATIONAL)
             │     │     ├── Triage Greptile comments (classify + reply)
             │     │     └── Post inline comments + summary
-            │     └── Clean up temp clone
+            │     └── Cache kept for next review (~/.claude-code-reviewer/repos/)
             │
             ├── [builtin mode]
             │     ├── Fetch diff via API
-            │     └── Pipe diff + checklist to `claude -p`
+            │     ├── Pipe diff + checklist to `claude -p`
+            │     └── Post inline comments on specific code lines + summary
             │
             └── Mark as reviewed
+
+Direct URL mode:
+  ./review.sh <PR/MR URL>  →  Reviews that single PR/MR immediately
 ```
 
-Claude posts comments directly on your PRs/MRs using `gh` or `glab` CLI commands.
+Claude posts **inline comments on the exact lines** where issues are found, plus a summary comment with the overall verdict. Uses `gh` or `glab` CLI commands.
 
 ## Prerequisites
 
@@ -57,10 +68,11 @@ Claude posts comments directly on your PRs/MRs using `gh` or `glab` CLI commands
 |------|---------|
 | [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) | `npm install -g @anthropic-ai/claude-code` |
 | [jq](https://jqlang.github.io/jq/) | `brew install jq` or `apt install jq` |
+| [git](https://git-scm.com/) (gstack mode) | `brew install git` or `apt install git` |
 | [gh](https://cli.github.com/) (GitHub) | `brew install gh` then `gh auth login` |
 | [glab](https://gitlab.com/gitlab-org/cli) (GitLab) | `brew install glab` then `glab auth login` |
 
-You need `claude` + `jq` + at least one of `gh`/`glab`.
+You need `claude` + `jq` + at least one of `gh`/`glab`. `git` is only required for gstack mode (repo cloning).
 
 ## Configuration
 
@@ -85,13 +97,13 @@ Edit `config.env` after setup (or re-run `./setup.sh`):
 
 Based on [garrytan/gstack](https://github.com/garrytan/gstack). For each PR/MR:
 
-1. **Shallow-clones** the repo to a temp directory
+1. **Clones** the repo on first run (cached at `~/.claude-code-reviewer/repos/`), then just fetches on subsequent reviews
 2. **Checks out** the PR/MR branch — Claude has full source context, not just the diff
 3. **Two-pass review** using the checklist:
    - **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions, Injection & Trust Boundaries
    - **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Dead Code, Test Gaps, Performance, etc.
-4. CRITICAL issues → "Request changes". Only INFORMATIONAL → "Approve with comments"
-5. Cleans up the temp clone
+4. **Inline comments** on the exact lines where issues are found + one summary comment
+5. CRITICAL issues → "Request changes". Only INFORMATIONAL → "Approve with comments"
 
 Falls back to builtin mode automatically if the clone fails.
 
@@ -99,7 +111,7 @@ In gstack mode, Claude has access to `Read`, `Grep`, and `Glob` tools for explor
 
 ### builtin
 
-Lighter mode — fetches the diff via API and pipes it directly to Claude. No cloning. Faster but Claude only sees the diff, not surrounding source code.
+Lighter mode — fetches the diff via API and pipes it directly to Claude. No cloning. Faster but Claude only sees the diff, not surrounding source code. Still posts inline comments on specific code lines.
 
 Set `REVIEW_TOOL=builtin` in `config.env` to use this mode.
 
@@ -123,11 +135,28 @@ Edit `checklist.md` to add your own rules. The file is injected into every revie
 - Add project-specific conventions
 - Edit the suppressions list (things to NOT flag)
 
+## Direct URL Review
+
+Review a specific PR or MR by passing its URL:
+
+```bash
+# GitLab MR
+./review.sh https://gitlab.com/org/project/-/merge_requests/42
+
+# GitHub PR
+./review.sh https://github.com/org/repo/pull/123
+```
+
+This bypasses the polling loop and reviews that single PR/MR immediately. Supports both GitHub and GitLab URLs. The URL is auto-detected — no need to set `PLATFORM`.
+
 ## Manual Usage
 
 ```bash
-# Run a review cycle manually
+# Run a review cycle (all open PRs/MRs)
 ./review.sh
+
+# Review a single PR/MR by URL
+./review.sh https://gitlab.com/org/project/-/merge_requests/42
 
 # Check what's been reviewed
 cat reviewed-prs.txt
@@ -183,6 +212,12 @@ Check `review.log` for errors. Common causes:
 **Nested session errors**
 The script unsets `CLAUDECODE` to prevent conflicts. If you still see issues, ensure you're not running `review.sh` from within a Claude Code session.
 
+**Review seems stuck / no output**
+Claude typically takes 1-3 minutes to review a PR. The script logs progress at each step (fetching diff, building prompt, sending to Claude). If it hangs longer than 5 minutes, check your Claude Code CLI authentication and API status.
+
+**Comments appearing in Overview instead of on code lines**
+This can happen if diff refs (base_sha, head_sha, start_sha) are stale or incorrect. Try re-running the review. For GitLab, ensure `glab` is updated to the latest version.
+
 **Log file growing large**
 The log auto-trims to `LOG_MAX_LINES` (default 5000) after each run. Reduce this value in `config.env` if needed.
 
@@ -203,11 +238,17 @@ Yes, as long as `gh` or `glab` is configured to point to your instance.
 **Can I review PRs I authored?**
 Set `REVIEW_ROLE=author` in `config.env` for self-review.
 
-**What's the difference between gstack and builtin mode?**
-gstack (default) clones the repo so Claude can read full source files for context — fewer false positives, better understanding of the codebase. builtin mode only sends the diff — faster and lighter, but Claude can't see surrounding code.
+**Can I review a single PR/MR without running the full poll cycle?**
+Yes. Pass the URL directly: `./review.sh https://github.com/org/repo/pull/42`
 
-**Why does gstack mode clone the repo every time?**
-Each clone is shallow (--depth=50) and goes to a temp directory that's cleaned up after review. This ensures Claude always sees the latest code without maintaining local checkouts.
+**Where do review comments appear?**
+Comments are posted as **inline comments on the exact code lines** where issues are found, plus one summary comment with the overall verdict. This makes it easy for developers to see issues right next to the relevant code.
+
+**What's the difference between gstack and builtin mode?**
+gstack (default) clones the repo so Claude can read full source files for context — fewer false positives, better understanding of the codebase. builtin mode only sends the diff — faster and lighter, but Claude can't see surrounding code. Both modes post inline comments.
+
+**Does gstack mode clone the repo every time?**
+No. The first review clones the repo (shallow, `--depth=50`) to `~/.claude-code-reviewer/repos/`. Subsequent reviews reuse the cached clone and just run `git fetch` to get the latest changes — much faster. You can delete the cache directory at any time to force a fresh clone.
 
 ## Credits
 
