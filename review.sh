@@ -485,7 +485,7 @@ github_clone_pr() {
   local repo="$1" pr_number="$2" tmpdir="$3"
 
   log "  Cloning ${repo} (shallow)..."
-  gh repo clone "$repo" "$tmpdir" -- --depth=50 --quiet 2>/dev/null || return 1
+  gh repo clone "$repo" "$tmpdir" -- --depth=1 --single-branch --quiet 2>/dev/null || return 1
 
   log "  Checking out PR #${pr_number}..."
   (cd "$tmpdir" && gh pr checkout "$pr_number" --force 2>/dev/null) || return 1
@@ -504,10 +504,10 @@ gitlab_clone_mr() {
   fi
 
   log "  Cloning project ${project_id} (shallow)..."
-  git clone --depth=50 --branch "$source_branch" --quiet "$clone_url" "$tmpdir" 2>/dev/null || return 1
+  git clone --depth=1 --single-branch --branch "$source_branch" --quiet "$clone_url" "$tmpdir" 2>/dev/null || return 1
 
-  # Fetch the target branch for diffing
-  (cd "$tmpdir" && git fetch origin "$target_branch" --depth=50 --quiet 2>/dev/null) || true
+  # Fetch the target branch for diffing (minimal depth)
+  (cd "$tmpdir" && git fetch origin "$target_branch" --depth=1 --quiet 2>/dev/null) || true
 
   return 0
 }
@@ -553,11 +553,11 @@ run_claude() {
     cmd+=(--model "$CLAUDE_MODEL")
   fi
 
+  # Stream output to terminal in real-time (tee to both stdout and log)
   if [[ "$mode" == "gstack" && -n "$workdir" ]]; then
-    # Run Claude in the cloned repo directory for full source context
-    (cd "$workdir" && echo "$prompt" | "${cmd[@]}" 2>&1)
+    (cd "$workdir" && echo "$prompt" | "${cmd[@]}")
   else
-    echo "$prompt" | "${cmd[@]}" 2>&1
+    echo "$prompt" | "${cmd[@]}"
   fi
 }
 
@@ -759,6 +759,171 @@ review_gitlab() {
   done <<< "$mrs_json"
 }
 
+# ─── Direct URL Review ─────────────────────────────────────────────────────────
+
+# Parse a GitHub PR URL: https://github.com/OWNER/REPO/pull/NUM
+parse_github_url() {
+  local url="$1"
+  local repo pr_number
+  # Extract owner/repo and PR number from URL
+  repo="$(echo "$url" | sed -E 's|https?://github\.com/([^/]+/[^/]+)/pull/([0-9]+).*|\1|')"
+  pr_number="$(echo "$url" | sed -E 's|https?://github\.com/([^/]+/[^/]+)/pull/([0-9]+).*|\2|')"
+  echo "${repo}|${pr_number}"
+}
+
+# Parse a GitLab MR URL: https://gitlab.com/GROUP/.../PROJECT/-/merge_requests/IID
+parse_gitlab_url() {
+  local url="$1"
+  local mr_iid
+  mr_iid="$(echo "$url" | sed -E 's|.*/merge_requests/([0-9]+).*|\1|')"
+  echo "$mr_iid"
+}
+
+# Get GitLab project_id and MR details from URL
+gitlab_mr_info_from_url() {
+  local url="$1" mr_iid="$2"
+  # Extract the project path from URL (everything between gitlab.com/ and /-/merge_requests)
+  local project_path
+  project_path="$(echo "$url" | sed -E 's|https?://[^/]+/(.+)/-/merge_requests/[0-9]+.*|\1|')"
+  local encoded_path
+  encoded_path="$(echo "$project_path" | sed 's|/|%2F|g')"
+
+  glab api "projects/${encoded_path}" 2>/dev/null | jq -r '.id' 2>/dev/null || echo ""
+}
+
+review_single_github_pr() {
+  local url="$1"
+  local parsed repo pr_number
+  parsed="$(parse_github_url "$url")"
+  repo="${parsed%%|*}"
+  pr_number="${parsed##*|}"
+
+  if [[ -z "$repo" || -z "$pr_number" || "$repo" == "$url" ]]; then
+    die "Cannot parse GitHub PR URL: ${url}"
+  fi
+
+  log "Reviewing GitHub PR: ${repo}#${pr_number}"
+
+  local pr_info
+  pr_info="$(github_get_pr_info "$repo" "$pr_number")"
+  if [[ -z "$pr_info" ]]; then
+    die "Cannot get PR info for ${url}"
+  fi
+
+  local prompt tmpdir=""
+  local review_ok=false
+
+  if [[ "$REVIEW_TOOL" == "gstack" ]]; then
+    tmpdir="$(mktemp -d)"
+    if github_clone_pr "$repo" "$pr_number" "$tmpdir"; then
+      prompt="$(github_build_gstack_prompt "$repo" "$pr_number" "$pr_info")"
+      if run_claude "$prompt" "$tmpdir" "gstack"; then
+        review_ok=true
+      fi
+    else
+      log "  Clone failed, falling back to builtin mode"
+      local diff
+      diff="$(github_get_diff "$repo" "$pr_number")"
+      if [[ -n "$diff" ]]; then
+        prompt="$(github_build_builtin_prompt "$repo" "$pr_number" "$diff" "$pr_info")"
+        if run_claude "$prompt" "" "builtin"; then
+          review_ok=true
+        fi
+      fi
+    fi
+    cleanup_tmpdir "$tmpdir"
+  else
+    local diff
+    diff="$(github_get_diff "$repo" "$pr_number")"
+    if [[ -z "$diff" ]]; then
+      die "Empty diff for ${url}"
+    fi
+    prompt="$(github_build_builtin_prompt "$repo" "$pr_number" "$diff" "$pr_info")"
+    if run_claude "$prompt" "" "builtin"; then
+      review_ok=true
+    fi
+  fi
+
+  if [[ "$review_ok" == "true" ]]; then
+    mark_reviewed "$url"
+    log "Completed review: ${url}"
+  else
+    log "Claude review failed for: ${url}"
+  fi
+}
+
+review_single_gitlab_mr() {
+  local url="$1"
+  local mr_iid
+  mr_iid="$(parse_gitlab_url "$url")"
+
+  if [[ -z "$mr_iid" || "$mr_iid" == "$url" ]]; then
+    die "Cannot parse GitLab MR URL: ${url}"
+  fi
+
+  local project_id
+  project_id="$(gitlab_mr_info_from_url "$url" "$mr_iid")"
+  if [[ -z "$project_id" || "$project_id" == "null" ]]; then
+    die "Cannot get project ID for ${url}"
+  fi
+
+  # Get MR details for source/target branch
+  local mr_details source_branch target_branch title
+  mr_details="$(glab api "projects/${project_id}/merge_requests/${mr_iid}" 2>/dev/null)"
+  source_branch="$(echo "$mr_details" | jq -r '.source_branch')"
+  target_branch="$(echo "$mr_details" | jq -r '.target_branch')"
+  title="$(echo "$mr_details" | jq -r '.title')"
+
+  log "Reviewing GitLab MR !${mr_iid}: ${title}"
+
+  local diff_refs
+  diff_refs="$(gitlab_get_diff_refs "$project_id" "$mr_iid")"
+  if [[ -z "$diff_refs" ]]; then
+    die "Cannot get diff refs for ${url}"
+  fi
+
+  local prompt tmpdir=""
+  local review_ok=false
+
+  if [[ "$REVIEW_TOOL" == "gstack" ]]; then
+    tmpdir="$(mktemp -d)"
+    if gitlab_clone_mr "$project_id" "$mr_iid" "$source_branch" "$target_branch" "$tmpdir"; then
+      prompt="$(gitlab_build_gstack_prompt "$project_id" "$mr_iid" "$diff_refs" "$target_branch")"
+      if run_claude "$prompt" "$tmpdir" "gstack"; then
+        review_ok=true
+      fi
+    else
+      log "  Clone failed, falling back to builtin mode"
+      local diff
+      diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
+      if [[ -n "$diff" ]]; then
+        prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
+        if run_claude "$prompt" "" "builtin"; then
+          review_ok=true
+        fi
+      fi
+    fi
+    cleanup_tmpdir "$tmpdir"
+  else
+    local diff
+    diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
+    if [[ -z "$diff" ]]; then
+      die "Empty diff for ${url}"
+    fi
+    prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
+    if run_claude "$prompt" "" "builtin"; then
+      review_ok=true
+    fi
+  fi
+
+  if [[ "$review_ok" == "true" ]]; then
+    mark_reviewed "$url"
+    log "Completed review: ${url}"
+  else
+    log "Claude review failed for: ${url}"
+  fi
+}
+
 # ─── Log Rotation ─────────────────────────────────────────────────────────────
 
 trim_log() {
@@ -792,6 +957,25 @@ main() {
     die "git not found. gstack mode requires git for cloning repos."
   fi
 
+  # Direct URL mode: ./review.sh <PR/MR URL>
+  if [[ $# -gt 0 && "$1" =~ ^https?:// ]]; then
+    local url="$1"
+    log "Direct review mode: ${url}"
+
+    if [[ "$url" =~ github\.com.*pull/[0-9]+ ]]; then
+      review_single_github_pr "$url"
+    elif [[ "$url" =~ merge_requests/[0-9]+ ]]; then
+      review_single_gitlab_mr "$url"
+    else
+      die "Unrecognized URL format. Expected GitHub PR or GitLab MR URL."
+    fi
+
+    trim_log
+    log "=== claude-code-reviewer finished ==="
+    return
+  fi
+
+  # Poll mode: review all open PRs/MRs
   local platform username
   platform="$(detect_platform)"
   username="$(detect_username "$platform")"
