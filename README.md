@@ -6,7 +6,15 @@ Uses the [gstack](https://github.com/garrytan/gstack) two-pass review methodolog
 
 Works with **GitHub** and **GitLab**. Zero config beyond `./setup.sh`.
 
-## Quickstart
+## One-Command Install
+
+Paste this into **Claude Code** and it handles everything:
+
+```
+Install claude-code-reviewer: run git clone https://github.com/shubhesh07/claude-code-reviewer.git ~/claude-code-reviewer && cd ~/claude-code-reviewer && ./setup.sh --auto
+```
+
+Or install manually:
 
 ```bash
 git clone https://github.com/shubhesh07/claude-code-reviewer.git
@@ -14,7 +22,7 @@ cd claude-code-reviewer
 ./setup.sh
 ```
 
-That's it. Setup detects your platform, authenticates, installs a scheduler, and starts reviewing.
+Setup detects your platform, authenticates, installs a scheduler, and starts reviewing.
 
 To review a specific PR/MR immediately:
 

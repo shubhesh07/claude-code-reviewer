@@ -9,6 +9,15 @@ REVIEW_SCRIPT="$SCRIPT_DIR/review.sh"
 PLIST_ID="com.claude-code-reviewer"
 PLIST_PATH="$HOME/Library/LaunchAgents/${PLIST_ID}.plist"
 
+# ─── Auto mode ─────────────────────────────────────────────────────────────────
+# --auto flag skips all interactive prompts, uses defaults
+AUTO_MODE=false
+for arg in "$@"; do
+  case "$arg" in
+    --auto) AUTO_MODE=true ;;
+  esac
+done
+
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
 info()  { echo "  [*] $*"; }
@@ -88,15 +97,20 @@ echo "Detecting platform..."
 platform="auto"
 if [[ "$has_gh" == "true" ]] && gh auth status &>/dev/null; then
   if [[ "$has_glab" == "true" ]] && glab auth status &>/dev/null; then
-    echo ""
-    echo "  Both GitHub and GitLab CLIs detected."
-    echo "  1) GitHub"
-    echo "  2) GitLab"
-    read -rp "  Select platform [1/2]: " choice
-    case "$choice" in
-      2) platform="gitlab" ;;
-      *) platform="github" ;;
-    esac
+    if [[ "$AUTO_MODE" == "true" ]]; then
+      platform="github"
+      info "Both CLIs detected — defaulting to github (auto mode)"
+    else
+      echo ""
+      echo "  Both GitHub and GitLab CLIs detected."
+      echo "  1) GitHub"
+      echo "  2) GitLab"
+      read -rp "  Select platform [1/2]: " choice
+      case "$choice" in
+        2) platform="gitlab" ;;
+        *) platform="github" ;;
+      esac
+    fi
   else
     platform="github"
   fi
@@ -124,8 +138,12 @@ esac
 if [[ -n "$username" ]]; then
   ok "Username: ${username}"
 else
-  warn "Could not auto-detect username."
-  read -rp "  Enter your username: " username
+  if [[ "$AUTO_MODE" == "true" ]]; then
+    warn "Could not auto-detect username. Set USERNAME in config.env manually."
+  else
+    warn "Could not auto-detect username."
+    read -rp "  Enter your username: " username
+  fi
 fi
 
 # ─── Step 4: Create config.env ─────────────────────────────────────────────────
@@ -133,23 +151,28 @@ fi
 echo ""
 echo "Creating config.env..."
 
-if [[ -f "$CONFIG_FILE" ]]; then
-  warn "config.env already exists."
-  read -rp "  Overwrite? [y/N]: " overwrite
-  if [[ "${overwrite,,}" != "y" ]]; then
-    info "Keeping existing config.env"
-  else
-    cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
-    sed -i.bak "s/^PLATFORM=auto/PLATFORM=${platform}/" "$CONFIG_FILE"
-    sed -i.bak "s/^USERNAME=/USERNAME=${username}/" "$CONFIG_FILE"
-    rm -f "${CONFIG_FILE}.bak"
-    ok "config.env updated"
-  fi
-else
+create_config() {
   cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
   sed -i.bak "s/^PLATFORM=auto/PLATFORM=${platform}/" "$CONFIG_FILE"
   sed -i.bak "s/^USERNAME=/USERNAME=${username}/" "$CONFIG_FILE"
   rm -f "${CONFIG_FILE}.bak"
+}
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  if [[ "$AUTO_MODE" == "true" ]]; then
+    info "Keeping existing config.env (auto mode)"
+  else
+    warn "config.env already exists."
+    read -rp "  Overwrite? [y/N]: " overwrite
+    if [[ "${overwrite,,}" == "y" ]]; then
+      create_config
+      ok "config.env updated"
+    else
+      info "Keeping existing config.env"
+    fi
+  fi
+else
+  create_config
   ok "config.env created"
 fi
 
@@ -177,11 +200,16 @@ install_scheduler=true
 if [[ "$(uname)" == "Darwin" ]]; then
   # macOS — launchd
   if [[ -f "$PLIST_PATH" ]]; then
-    warn "launchd plist already exists."
-    read -rp "  Overwrite? [y/N]: " overwrite
-    if [[ "${overwrite,,}" != "y" ]]; then
+    if [[ "$AUTO_MODE" == "true" ]]; then
+      info "Keeping existing scheduler (auto mode)"
       install_scheduler=false
-      info "Keeping existing scheduler"
+    else
+      warn "launchd plist already exists."
+      read -rp "  Overwrite? [y/N]: " overwrite
+      if [[ "${overwrite,,}" != "y" ]]; then
+        install_scheduler=false
+        info "Keeping existing scheduler"
+      fi
     fi
   fi
 
@@ -215,24 +243,34 @@ if [[ "$(uname)" == "Darwin" ]]; then
 PLIST
     ok "Created launchd plist: ${PLIST_PATH}"
 
-    read -rp "  Load scheduler now? [Y/n]: " load_now
-    if [[ "${load_now,,}" != "n" ]]; then
+    if [[ "$AUTO_MODE" == "true" ]]; then
       launchctl unload "$PLIST_PATH" 2>/dev/null || true
       launchctl load "$PLIST_PATH"
       ok "Scheduler loaded — reviews will run every ${interval}s"
     else
-      info "Load manually: launchctl load ${PLIST_PATH}"
+      read -rp "  Load scheduler now? [Y/n]: " load_now
+      if [[ "${load_now,,}" != "n" ]]; then
+        launchctl unload "$PLIST_PATH" 2>/dev/null || true
+        launchctl load "$PLIST_PATH"
+        ok "Scheduler loaded — reviews will run every ${interval}s"
+      else
+        info "Load manually: launchctl load ${PLIST_PATH}"
+      fi
     fi
   fi
 else
   # Linux — crontab
   cron_entry="*/$((interval / 60)) * * * * ${REVIEW_SCRIPT} >> ${SCRIPT_DIR}/review.log 2>&1"
   if crontab -l 2>/dev/null | grep -qF "$REVIEW_SCRIPT"; then
-    warn "Crontab entry already exists."
-    read -rp "  Replace? [y/N]: " overwrite
-    if [[ "${overwrite,,}" == "y" ]]; then
-      (crontab -l 2>/dev/null | grep -vF "$REVIEW_SCRIPT"; echo "$cron_entry") | crontab -
-      ok "Crontab updated"
+    if [[ "$AUTO_MODE" == "true" ]]; then
+      info "Keeping existing crontab entry (auto mode)"
+    else
+      warn "Crontab entry already exists."
+      read -rp "  Replace? [y/N]: " overwrite
+      if [[ "${overwrite,,}" == "y" ]]; then
+        (crontab -l 2>/dev/null | grep -vF "$REVIEW_SCRIPT"; echo "$cron_entry") | crontab -
+        ok "Crontab updated"
+      fi
     fi
   else
     (crontab -l 2>/dev/null; echo "$cron_entry") | crontab -
@@ -249,7 +287,7 @@ echo "  Platform:  ${platform}"
 echo "  Username:  ${username}"
 echo "  Interval:  ${interval}s ($(( interval / 60 )) min)"
 echo "  Config:    ${CONFIG_FILE}"
-echo "  Checklist: ${CHECKLIST_FILE}"
+echo "  Checklist: ${SCRIPT_DIR}/checklist.md"
 echo ""
 echo "  Manual run:  ./review.sh"
 echo "  Edit config: \$EDITOR config.env"
