@@ -3,8 +3,8 @@ package com.claudereviewer.service
 import com.claudereviewer.toolwindow.ReviewToolWindowFactory
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.OSProcessHandler
-import com.intellij.execution.process.ProcessAdapter
 import com.intellij.execution.process.ProcessEvent
+import com.intellij.execution.process.ProcessListener
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.openapi.application.ApplicationManager
@@ -134,7 +134,7 @@ object ReviewRunner {
                 console.attachToProcess(handler)
             }
 
-            handler.addProcessListener(object : ProcessAdapter() {
+            handler.addProcessListener(object : ProcessListener {
                 override fun processTerminated(event: ProcessEvent) {
                     val code = event.exitCode
                     val type = if (code == 0) ConsoleViewContentType.NORMAL_OUTPUT

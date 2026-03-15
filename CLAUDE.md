@@ -5,7 +5,7 @@ Open-source auto PR/MR code review tool powered by Claude Code CLI. Detects plat
 
 **GitHub**: https://github.com/shubhesh07/claude-code-reviewer
 **VS Code Marketplace**: https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer
-**JetBrains Marketplace**: https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer
+**JetBrains Marketplace**: https://plugins.jetbrains.com/plugin/30706-claude-code-reviewer
 
 ## Repo Structure
 ```

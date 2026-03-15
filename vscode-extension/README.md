@@ -51,4 +51,4 @@ The extension wraps the [claude-code-reviewer](https://github.com/shubhesh07/cla
 
 - [GitHub](https://github.com/shubhesh07/claude-code-reviewer)
 - [Report Issues](https://github.com/shubhesh07/claude-code-reviewer/issues)
-- [JetBrains Plugin](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer)
+- [JetBrains Plugin](https://plugins.jetbrains.com/plugin/30706-claude-code-reviewer)

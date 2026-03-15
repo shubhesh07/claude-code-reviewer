@@ -2,7 +2,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/shubhesh07/claude-code-reviewer?style=social)](https://github.com/shubhesh07/claude-code-reviewer)
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/shubhesh07.claude-code-reviewer?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer)
-[![JetBrains](https://img.shields.io/badge/JetBrains-Marketplace-000000)](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer)
+[![JetBrains](https://img.shields.io/badge/JetBrains-Marketplace-000000)](https://plugins.jetbrains.com/plugin/30706-claude-code-reviewer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/badge/GitHub-supported-blue)](https://github.com)
 [![GitLab](https://img.shields.io/badge/GitLab-supported-orange)](https://gitlab.com)
@@ -32,7 +32,7 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 
 ### GoLand / IntelliJ / WebStorm / PyCharm
 
-Install from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer):
+Install from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30706-claude-code-reviewer):
 
 1. Open Settings → Plugins → Marketplace
 2. Search **"Claude Code Reviewer"**
