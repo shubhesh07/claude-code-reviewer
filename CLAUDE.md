@@ -52,19 +52,26 @@ claude-code-reviewer/
 - **Clone cache**: `~/.claude-code-reviewer/repos/` — clone once, `git fetch` on subsequent reviews
 - **Explicit refspec**: `git fetch origin "+refs/heads/branch:refs/remotes/origin/branch"` (plain fetch only goes to FETCH_HEAD)
 - **Claude invocation**: `run_claude()` uses `claude -p --verbose --allowedTools "..." < prompt`
+- **Output capture**: `run_claude()` uses `tee` to capture output for the fix phase
 - **Direct URL mode**: `./review.sh <URL>` bypasses polling, reviews single PR/MR
+- **Fix mode**: `./review.sh --fix <URL>` runs `run_claude_fix()` with Edit/Write tools to fix CRITICAL issues
+- **Auto-fix flow**: After review, `prompt_and_fix()` asks user interactively (CLI) or is triggered by IDE extensions
 - **GitLab inline comments**: Uses `jq -n | glab api --input -` for nested JSON (not `-f "position[key]=value"` which sends flat keys)
 
 ### VS Code Extension
 - Wraps `review.sh` — no duplicated logic
 - `spawn('bash', [reviewShPath, prUrl])` with streaming output to Output Channel
 - PR detection via `gh pr view --json url` / `glab mr view --output json`
+- **Auto-fix**: After review, shows "Fix Issues" button → runs `review.sh --fix <URL>`
+- **Auto-install**: 4-tier `review.sh` detection + auto clone/setup on first use
 - Published: shubhesh07.claude-code-reviewer on VS Code Marketplace
 
 ### JetBrains Plugin
 - Wraps `review.sh` — same approach as VS Code extension
 - `GeneralCommandLine` + `OSProcessHandler` → streams to `ConsoleView`
 - Tools menu: "Review Current PR with Claude" and "Review PR by URL with Claude"
+- **Auto-fix**: After review, shows dialog → runs `review.sh --fix <URL>`
+- **Auto-install**: 4-tier `review.sh` detection + auto clone/setup on first use
 - Targets IntelliJ 2024.1+ (compatible with GoLand, IntelliJ, WebStorm, PyCharm)
 - Published: Claude Code Reviewer on JetBrains Marketplace
 - Build: `JAVA_HOME=<jbr-17-path> ./gradlew buildPlugin` → ZIP in `build/distributions/`

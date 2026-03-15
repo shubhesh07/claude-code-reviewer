@@ -10,6 +10,7 @@ STATE_FILE="$SCRIPT_DIR/reviewed-prs.txt"
 LOG_FILE="$SCRIPT_DIR/review.log"
 CHECKLIST_FILE="$SCRIPT_DIR/checklist.md"
 GREPTILE_HISTORY="${HOME}/.gstack/greptile-history.md"
+FIX_MODE=false
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 
@@ -705,13 +706,12 @@ run_claude() {
   log "  Sending prompt to Claude (${prompt_size} chars, mode: ${mode})..."
   log "  Claude is reviewing — this may take 1-3 minutes..."
 
-  # Stream both stdout and stderr to terminal
   if [[ "$mode" == "gstack" && -n "$workdir" ]]; then
     (cd "$workdir" && echo "$prompt" | "${cmd[@]}") 2>&1
   else
     echo "$prompt" | "${cmd[@]}" 2>&1
   fi
-  local exit_code=$?
+  local exit_code=${PIPESTATUS[0]}
 
   if [[ $exit_code -eq 0 ]]; then
     log "  Claude finished successfully."
@@ -720,6 +720,140 @@ run_claude() {
   fi
 
   return $exit_code
+}
+
+# ─── Fix Phase ─────────────────────────────────────────────────────────────────
+
+fetch_github_review_comments() {
+  local repo="$1" pr_number="$2"
+  # Fetch the most recent review comments posted by claude-code-reviewer
+  # These are the inline comments with [CRITICAL] and [INFO] tags
+  gh api "repos/${repo}/pulls/${pr_number}/comments" \
+    --jq '.[] | select(.body | test("\\[CRITICAL\\]|\\[INFO\\]")) | "File: \(.path):\(.line // .original_line)\n\(.body)\n"' \
+    2>/dev/null
+}
+
+fetch_gitlab_review_comments() {
+  local project_id="$1" mr_iid="$2"
+  # Fetch MR discussions that contain review findings
+  glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \
+    2>/dev/null | jq -r '.[] | .notes[] | select(.body | test("\\[CRITICAL\\]|\\[INFO\\]")) | "File: \(.position.new_path // "unknown"):\(.position.new_line // "?")\n\(.body)\n"'
+}
+
+run_claude_fix() {
+  local workdir="$1"
+  local review_comments="$2"
+  local diff="$3"
+
+  log "  Starting fix phase — Claude will edit files to fix CRITICAL issues..."
+
+  local fix_prompt
+  fix_prompt="$(cat <<FIXEOF
+You are a senior engineer fixing code issues found during a PR/MR code review.
+
+## Review Comments (from the code review)
+These are the exact inline comments posted during the review. Each comment includes the file path, line number, and the issue description.
+
+${review_comments}
+
+## Current Diff (what was changed in this PR)
+${diff}
+
+## Instructions
+
+1. **Read each CRITICAL issue carefully.** Understand the exact problem — SQL injection, race condition, missing validation, etc.
+2. **Read the full source file** (not just the diff) for each file with a CRITICAL issue. You need surrounding context to write a correct fix.
+3. **Fix ONLY [CRITICAL] issues.** Do NOT touch [INFO] issues — those are non-blocking suggestions for the developer.
+4. **For each fix:**
+   - Use the Edit tool to modify the exact lines where the issue exists
+   - Ensure your fix is correct — don't introduce new bugs
+   - Keep the fix minimal and focused on the specific issue
+5. **After all fixes**, run \`git diff\` to show exactly what changed.
+6. **Do NOT commit or push.** The developer will review your changes first.
+7. **If there are no CRITICAL issues**, say "No CRITICAL issues to fix" and exit.
+
+## Fix Quality Rules
+- Prefer the simplest correct fix over clever solutions
+- Maintain existing code style and conventions
+- If a fix requires adding imports or dependencies, include them
+- If you're unsure about a fix, explain your reasoning and apply the safest option
+- Test your logic mentally — walk through edge cases before editing
+FIXEOF
+)"
+
+  local cmd=(claude -p --verbose)
+  local tools=("Edit" "Write" "Read" "Grep" "Glob" "Bash(git:*)" "Bash(cat:*)")
+
+  for tool in "${tools[@]}"; do
+    cmd+=(--allowedTools "$tool")
+  done
+
+  if [[ -n "$CLAUDE_MODEL" ]]; then
+    cmd+=(--model "$CLAUDE_MODEL")
+  fi
+
+  log "  Claude is fixing issues — this may take 1-3 minutes..."
+
+  (cd "$workdir" && echo "$fix_prompt" | "${cmd[@]}") 2>&1
+  local exit_code=$?
+
+  if [[ $exit_code -eq 0 ]]; then
+    log "  Fix phase completed successfully."
+  else
+    log "  Fix phase exited with code ${exit_code}."
+  fi
+
+  return $exit_code
+}
+
+prompt_and_fix() {
+  local clone_dir="$1"
+  local platform="$2"       # "github" or "gitlab"
+  local identifier="$3"     # repo (github) or project_id (gitlab)
+  local pr_number="$4"      # PR number or MR iid
+
+  if [[ -z "$clone_dir" || ! -d "$clone_dir" ]]; then
+    log "  Cannot fix — no local repo checkout (builtin mode). Use gstack mode for auto-fix."
+    return
+  fi
+
+  # Interactive prompt (CLI only)
+  if [[ -t 0 && "$FIX_MODE" != "true" ]]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Review complete. Want Claude to fix the CRITICAL issues?"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    read -r -p "  Fix issues? (y/n): " fix_choice
+    if [[ ! "$fix_choice" =~ ^[Yy]$ ]]; then
+      log "  Fix skipped by user."
+      return
+    fi
+  fi
+
+  # Fetch the actual review comments from the API (structured findings)
+  log "  Fetching review comments from ${platform}..."
+  local review_comments=""
+  if [[ "$platform" == "github" ]]; then
+    review_comments="$(fetch_github_review_comments "$identifier" "$pr_number")"
+  elif [[ "$platform" == "gitlab" ]]; then
+    review_comments="$(fetch_gitlab_review_comments "$identifier" "$pr_number")"
+  fi
+
+  if [[ -z "$review_comments" ]]; then
+    log "  No CRITICAL or INFO comments found on the PR/MR. Nothing to fix."
+    return
+  fi
+
+  # Get the current diff for context
+  log "  Fetching current diff..."
+  local diff=""
+  diff="$(cd "$clone_dir" && git diff origin/HEAD 2>/dev/null || git diff HEAD~1 2>/dev/null || echo "")"
+
+  # Save metadata for --fix mode
+  local fix_metadata="${clone_dir}/.claude-fix-metadata"
+  echo "${platform}|${identifier}|${pr_number}" > "$fix_metadata"
+
+  run_claude_fix "$clone_dir" "$review_comments" "$diff"
 }
 
 review_github() {
@@ -1017,6 +1151,7 @@ review_single_github_pr() {
   if [[ "$review_ok" == "true" ]]; then
     mark_reviewed "$url"
     log "Completed review: ${url}"
+    prompt_and_fix "$clone_dir" "github" "$repo" "$pr_number"
   else
     log "Claude review failed for: ${url}"
   fi
@@ -1095,6 +1230,7 @@ review_single_gitlab_mr() {
   if [[ "$review_ok" == "true" ]]; then
     mark_reviewed "$url"
     log "Completed review: ${url}"
+    prompt_and_fix "$clone_dir" "gitlab" "$project_id" "$mr_iid"
   else
     log "Claude review failed for: ${url}"
   fi
@@ -1131,6 +1267,58 @@ main() {
 
   if [[ "$REVIEW_TOOL" == "gstack" ]] && ! command -v git &>/dev/null; then
     die "git not found. gstack mode requires git for cloning repos."
+  fi
+
+  # --fix flag: skip review, run fix phase only
+  if [[ $# -gt 0 && "$1" == "--fix" ]]; then
+    FIX_MODE=true
+    shift
+    if [[ $# -eq 0 ]]; then
+      die "Usage: ./review.sh --fix <PR/MR URL>"
+    fi
+    local url="$1"
+    log "Fix mode: ${url}"
+
+    # Determine clone dir + parse platform info from URL
+    local clone_dir="" fix_platform="" fix_identifier="" fix_pr_number=""
+    if [[ "$url" =~ github\.com.*pull/[0-9]+ ]]; then
+      local parsed repo
+      parsed="$(parse_github_url "$url")"
+      repo="${parsed%%|*}"
+      fix_platform="github"
+      fix_identifier="$repo"
+      fix_pr_number="${parsed##*|}"
+      clone_dir="${CACHE_DIR}/github/${repo}"
+    elif [[ "$url" =~ merge_requests/[0-9]+ ]]; then
+      local mr_iid project_id
+      mr_iid="$(parse_gitlab_url "$url")"
+      project_id="$(gitlab_mr_info_from_url "$url" "$mr_iid")"
+      fix_platform="gitlab"
+      fix_identifier="$project_id"
+      fix_pr_number="$mr_iid"
+      clone_dir="${CACHE_DIR}/gitlab/${project_id}"
+    else
+      die "Unrecognized URL format."
+    fi
+
+    if [[ ! -d "$clone_dir" ]]; then
+      die "No cached repo found at ${clone_dir}. Run a review first."
+    fi
+
+    # Read fix metadata from previous review (overrides URL-parsed values if available)
+    local fix_metadata="${clone_dir}/.claude-fix-metadata"
+    if [[ -f "$fix_metadata" ]]; then
+      local metadata
+      metadata="$(cat "$fix_metadata")"
+      fix_platform="$(echo "$metadata" | cut -d'|' -f1)"
+      fix_identifier="$(echo "$metadata" | cut -d'|' -f2)"
+      fix_pr_number="$(echo "$metadata" | cut -d'|' -f3)"
+    fi
+
+    prompt_and_fix "$clone_dir" "$fix_platform" "$fix_identifier" "$fix_pr_number"
+
+    log "=== fix phase finished ==="
+    return
   fi
 
   # Direct URL mode: ./review.sh <PR/MR URL>

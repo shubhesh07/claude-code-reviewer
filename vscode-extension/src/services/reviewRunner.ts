@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn, ChildProcess, execSync } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import { getReviewShPath } from '../utils/config';
 
 const REPO_URL = 'https://github.com/shubhesh07/claude-code-reviewer.git';
@@ -153,6 +153,62 @@ export async function runReview(
         cancellationToken.onCancellationRequested(() => {
             child.kill('SIGTERM');
             outputChannel.appendLine('\nReview cancelled by user.');
+            resolve({ exitCode: 1, killed: true });
+        });
+    });
+}
+
+export async function runFix(
+    prUrl: string,
+    outputChannel: vscode.OutputChannel,
+    cancellationToken: vscode.CancellationToken
+): Promise<ReviewResult> {
+    let reviewShPath = getReviewShPath();
+
+    if (!reviewShPath) {
+        throw new Error('review.sh not found. Cannot run fix.');
+    }
+
+    return new Promise((resolve, reject) => {
+        const timestamp = new Date().toLocaleString();
+        outputChannel.appendLine('');
+        outputChannel.appendLine('='.repeat(60));
+        outputChannel.appendLine(`Claude Fix Started: ${timestamp}`);
+        outputChannel.appendLine(`PR/MR: ${prUrl}`);
+        outputChannel.appendLine('='.repeat(60));
+        outputChannel.appendLine('');
+        outputChannel.show(true);
+
+        const child: ChildProcess = spawn('bash', [reviewShPath!, '--fix', prUrl], {
+            env: {
+                ...process.env,
+                PATH: buildEnvPath(),
+            },
+        });
+
+        child.stdout?.on('data', (data: Buffer) => {
+            outputChannel.append(data.toString());
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+            outputChannel.append(data.toString());
+        });
+
+        child.on('close', (code) => {
+            outputChannel.appendLine('');
+            outputChannel.appendLine(`Fix finished with exit code: ${code ?? 'unknown'}`);
+            outputChannel.appendLine('='.repeat(60));
+            resolve({ exitCode: code ?? 1, killed: false });
+        });
+
+        child.on('error', (err) => {
+            outputChannel.appendLine(`Error: ${err.message}`);
+            reject(err);
+        });
+
+        cancellationToken.onCancellationRequested(() => {
+            child.kill('SIGTERM');
+            outputChannel.appendLine('\nFix cancelled by user.');
             resolve({ exitCode: 1, killed: true });
         });
     });

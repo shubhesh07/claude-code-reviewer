@@ -7,11 +7,19 @@
 [![GitHub](https://img.shields.io/badge/GitHub-supported-blue)](https://github.com)
 [![GitLab](https://img.shields.io/badge/GitLab-supported-orange)](https://gitlab.com)
 
-Automatic PR/MR code reviews powered by Claude Code CLI. Clone, run setup, and every open pull request or merge request assigned to you gets reviewed automatically.
+Automatic PR/MR code reviews powered by Claude Code CLI — **review and fix** in one flow. Clone, run setup, and every open pull request or merge request assigned to you gets reviewed automatically. When issues are found, Claude can fix them for you.
 
 Uses the [gstack](https://github.com/garrytan/gstack) two-pass review methodology by default — CRITICAL issues (SQL safety, race conditions, injection) block, INFORMATIONAL issues (dead code, test gaps, performance) are noted but non-blocking.
 
 Works with **GitHub** and **GitLab**. Zero config beyond `./setup.sh`.
+
+## Why Use This
+
+- **Catch bugs before they reach production** — SQL injection, race conditions, and data safety issues are flagged as CRITICAL before merge
+- **Review + Fix in one flow** — after review, Claude offers to auto-fix CRITICAL issues in your codebase. No context-switching, no copy-pasting error descriptions
+- **Every PR gets reviewed** — no more PRs sitting without review. Runs every 15 minutes or on-demand from your IDE
+- **Full codebase context** — unlike diff-only tools, gstack mode clones the repo so Claude reads surrounding code, reducing false positives
+- **Works where you work** — CLI, VS Code, GoLand/IntelliJ — same review quality everywhere
 
 ## IDE Extensions
 
@@ -50,6 +58,45 @@ The IDE extensions automatically install the CLI tool. You just need:
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — `npm install -g @anthropic-ai/claude-code`
 - [gh](https://cli.github.com/) (for GitHub) — `brew install gh && gh auth login`
 - [glab](https://gitlab.com/gitlab-org/cli) (for GitLab) — `brew install glab && glab auth login`
+
+## Auto-Fix: Review + Fix in One Flow
+
+After reviewing a PR/MR, Claude offers to **automatically fix the CRITICAL issues** it found. This closes the loop from "problem found" to "problem fixed" without manual effort.
+
+### How it works
+
+```
+Review completes
+      │
+      ├── CLI: "Fix issues? (y/n)" prompt
+      │
+      ├── VS Code: notification with "Fix Issues" button
+      │
+      └── GoLand/IntelliJ: dialog with "Fix Issues" option
+              │
+              └── Claude runs again with Edit/Write tools
+                    ├── Reads the review findings
+                    ├── Fixes ONLY CRITICAL issues (not informational)
+                    ├── Edits files directly in the local repo
+                    └── Shows `git diff` of changes — you review before committing
+```
+
+### CLI usage
+
+```bash
+# Review + fix prompt
+./review.sh https://github.com/org/repo/pull/123
+# After review: "Fix issues? (y/n)" — press y to auto-fix
+
+# Fix only (after a previous review)
+./review.sh --fix https://github.com/org/repo/pull/123
+```
+
+### What gets fixed
+
+- **CRITICAL issues only** — SQL safety, race conditions, injection vulnerabilities, data integrity problems
+- **NOT informational** — dead code, naming suggestions, test gaps are noted but not auto-fixed
+- **Local changes only** — Claude edits files in the cached repo. Nothing is committed or pushed. You review the diff first
 
 ## One-Command Install (CLI)
 
@@ -107,10 +154,17 @@ Every 15 min (configurable):
             │     ├── Pipe diff + checklist to `claude -p`
             │     └── Post inline comments on specific code lines + summary
             │
-            └── Mark as reviewed
+            ├── Mark as reviewed
+            │
+            └── [auto-fix — direct URL / IDE only]
+                  ├── "Fix issues?" prompt
+                  ├── Claude runs again with Edit/Write tools
+                  ├── Fixes CRITICAL issues in local files
+                  └── Developer reviews changes via git diff
 
 Direct URL mode:
   ./review.sh <PR/MR URL>  →  Reviews that single PR/MR immediately
+  ./review.sh --fix <URL>  →  Fixes issues from the last review
 ```
 
 Claude posts **inline comments on the exact lines** where issues are found, plus a summary comment with the overall verdict. Uses `gh` or `glab` CLI commands.
@@ -208,8 +262,11 @@ This bypasses the polling loop and reviews that single PR/MR immediately. Suppor
 # Run a review cycle (all open PRs/MRs)
 ./review.sh
 
-# Review a single PR/MR by URL
+# Review a single PR/MR by URL (will prompt to fix after)
 ./review.sh https://gitlab.com/org/project/-/merge_requests/42
+
+# Fix issues from the last review (without re-reviewing)
+./review.sh --fix https://gitlab.com/org/project/-/merge_requests/42
 
 # Check what's been reviewed
 cat reviewed-prs.txt
@@ -293,6 +350,9 @@ Set `REVIEW_ROLE=author` in `config.env` for self-review.
 
 **Can I review a single PR/MR without running the full poll cycle?**
 Yes. Pass the URL directly: `./review.sh https://github.com/org/repo/pull/42`
+
+**Can Claude fix the issues it finds?**
+Yes. After reviewing a PR in direct URL mode or from an IDE extension, Claude offers to auto-fix CRITICAL issues. It edits files in the local repo — nothing is pushed. You review the changes via `git diff` before committing. Use `./review.sh --fix <URL>` to re-run the fix phase without re-reviewing.
 
 **Where do review comments appear?**
 Comments are posted as **inline comments on the exact code lines** where issues are found, plus one summary comment with the overall verdict. This makes it easy for developers to see issues right next to the relevant code.

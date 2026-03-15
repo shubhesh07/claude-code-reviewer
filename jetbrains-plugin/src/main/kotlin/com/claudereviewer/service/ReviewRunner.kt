@@ -142,6 +142,66 @@ object ReviewRunner {
                     ApplicationManager.getApplication().invokeLater {
                         console.print("\nReview finished (exit code: $code)\n", type)
                         console.print("=" .repeat(60) + "\n", ConsoleViewContentType.NORMAL_OUTPUT)
+
+                        if (code == 0) {
+                            promptAndFix(project, reviewShPath, prUrl)
+                        }
+                    }
+                }
+            })
+
+            handler.startNotify()
+            handler.waitFor()
+        } catch (e: Exception) {
+            ApplicationManager.getApplication().invokeLater {
+                console.print("Error: ${e.message}\n", ConsoleViewContentType.ERROR_OUTPUT)
+            }
+        }
+    }
+
+    private fun promptAndFix(project: Project, reviewShPath: String, prUrl: String) {
+        val choice = Messages.showYesNoDialog(
+            project,
+            "Review complete. Want Claude to fix the CRITICAL issues found?",
+            "Claude Code Reviewer — Fix Issues",
+            "Fix Issues",
+            "Skip",
+            Messages.getQuestionIcon()
+        )
+        if (choice != Messages.YES) return
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            runFix(project, reviewShPath, prUrl)
+        }
+    }
+
+    private fun runFix(project: Project, reviewShPath: String, prUrl: String) {
+        val console = project.getUserData(ReviewToolWindowFactory.CONSOLE_KEY) ?: return
+
+        ApplicationManager.getApplication().invokeLater {
+            console.print("\n" + "=" .repeat(60) + "\n", ConsoleViewContentType.NORMAL_OUTPUT)
+            console.print("Claude Fix: $prUrl\n", ConsoleViewContentType.NORMAL_OUTPUT)
+            console.print("=" .repeat(60) + "\n\n", ConsoleViewContentType.NORMAL_OUTPUT)
+        }
+
+        val cmd = GeneralCommandLine("bash", reviewShPath, "--fix", prUrl)
+            .withEnvironment("PATH", buildPath())
+            .withCharset(Charsets.UTF_8)
+
+        try {
+            val handler = OSProcessHandler(cmd)
+            ApplicationManager.getApplication().invokeLater {
+                console.attachToProcess(handler)
+            }
+
+            handler.addProcessListener(object : ProcessListener {
+                override fun processTerminated(event: ProcessEvent) {
+                    val code = event.exitCode
+                    val type = if (code == 0) ConsoleViewContentType.NORMAL_OUTPUT
+                               else ConsoleViewContentType.ERROR_OUTPUT
+                    ApplicationManager.getApplication().invokeLater {
+                        console.print("\nFix finished (exit code: $code)\n", type)
+                        console.print("=" .repeat(60) + "\n", ConsoleViewContentType.NORMAL_OUTPUT)
                     }
                 }
             })
