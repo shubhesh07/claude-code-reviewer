@@ -1,3 +1,18 @@
 config.env
 reviewed-prs.txt
 *.log
+
+# VS Code extension
+vscode-extension/node_modules/
+vscode-extension/out/
+vscode-extension/*.vsix
+
+# JetBrains plugin
+jetbrains-plugin/build/
+jetbrains-plugin/.gradle/
+jetbrains-plugin/.intellijPlatform/
+
+# IDE
+.idea/
+*.iml
+.claude/
