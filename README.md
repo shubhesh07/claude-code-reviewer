@@ -4,12 +4,23 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/badge/GitHub-supported-blue)](https://github.com)
 [![GitLab](https://img.shields.io/badge/GitLab-supported-orange)](https://gitlab.com)
+[![VS Code](https://img.shields.io/badge/VS%20Code-Marketplace-007ACC)](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer)
+[![JetBrains](https://img.shields.io/badge/JetBrains-Marketplace-000000)](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer)
 
 Automatic PR/MR code reviews powered by Claude Code CLI. Clone, run setup, and every open pull request or merge request assigned to you gets reviewed automatically.
 
 Uses the [gstack](https://github.com/garrytan/gstack) two-pass review methodology by default — CRITICAL issues (SQL safety, race conditions, injection) block, INFORMATIONAL issues (dead code, test gaps, performance) are noted but non-blocking.
 
 Works with **GitHub** and **GitLab**. Zero config beyond `./setup.sh`.
+
+## IDE Extensions
+
+Use claude-code-reviewer directly from your IDE:
+
+- **VS Code**: [Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer) — search "Claude Code Reviewer" in Extensions
+- **GoLand / IntelliJ / WebStorm / PyCharm**: [Install from JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer) — search "Claude Code Reviewer" in Settings → Plugins
+
+Both extensions wrap the CLI tool and add **Tools** menu actions: "Review Current PR with Claude" (auto-detects your branch) and "Review PR by URL with Claude".
 
 ## One-Command Install
 
