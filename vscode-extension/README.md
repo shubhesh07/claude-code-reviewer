@@ -2,40 +2,53 @@
 
 Review GitHub PRs and GitLab MRs directly from VS Code using Claude Code CLI.
 
+## Quick Start
+
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer) (search "Claude Code Reviewer")
+2. Open Command Palette (`Cmd+Shift+P`) → `Claude: Review Current PR`
+3. That's it — the extension auto-installs the CLI tool on first use
+
 ## Features
 
-- **Review Current PR** — Detects the PR/MR for your current branch and reviews it
-- **Review by URL** — Paste any PR/MR URL to review it
-- **Status Bar** — One-click access to review from the status bar
-- **Streaming Output** — Watch the review progress in real-time
+- **Auto-Install** — prompts to install the CLI tool automatically if not found
+- **Review Current PR** — detects the PR/MR for your current branch and reviews it
+- **Review by URL** — paste any GitHub PR or GitLab MR URL to review
+- **Status Bar** — one-click access from the bottom bar
+- **Streaming Output** — watch the review progress in real-time
+- **Smart Detection** — finds `review.sh` automatically even in non-standard locations
 
 ## Prerequisites
 
-1. Install [claude-code-reviewer](https://github.com/shubhesh07/claude-code-reviewer):
-   ```bash
-   git clone https://github.com/shubhesh07/claude-code-reviewer.git ~/claude-code-reviewer
-   cd ~/claude-code-reviewer && ./setup.sh
-   ```
+The extension auto-installs the [claude-code-reviewer](https://github.com/shubhesh07/claude-code-reviewer) CLI on first run. You just need:
 
-2. Ensure `claude`, `jq`, and `gh`/`glab` CLI are installed and authenticated.
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code): `npm install -g @anthropic-ai/claude-code`
+- [gh](https://cli.github.com/) (GitHub): `brew install gh` then `gh auth login`
+- [glab](https://gitlab.com/gitlab-org/cli) (GitLab): `brew install glab` then `glab auth login`
 
 ## Usage
 
-- **Command Palette** → `Claude: Review Current PR` or `Claude: Review PR by URL`
-- **Status Bar** → Click "Claude Reviewer" in the bottom bar
+- **Command Palette** (`Cmd+Shift+P`) → `Claude: Review Current PR` or `Claude: Review PR by URL`
+- **Status Bar** → click "Claude Reviewer" in the bottom bar
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `claude-reviewer.reviewShPath` | auto-detected | Absolute path to `review.sh` |
+| `claude-reviewer.reviewShPath` | auto-detected | Path to `review.sh` (leave empty for auto-detect) |
 | `claude-reviewer.platform` | `auto` | `auto`, `github`, or `gitlab` |
 
-## Install from VSIX
+## How It Works
 
-```bash
-cd vscode-extension
-npm install && npm run compile
-npm run package
-code --install-extension claude-code-reviewer-0.1.0.vsix
-```
+The extension wraps the [claude-code-reviewer](https://github.com/shubhesh07/claude-code-reviewer) CLI tool. When you run a review:
+
+1. Detects your current branch's PR/MR (or uses the URL you provided)
+2. Runs `review.sh` which invokes Claude Code with full repo context
+3. Claude performs a two-pass review (CRITICAL + INFORMATIONAL)
+4. Posts inline comments on the exact lines where issues are found
+5. Posts a summary comment with the overall verdict
+
+## Links
+
+- [GitHub](https://github.com/shubhesh07/claude-code-reviewer)
+- [Report Issues](https://github.com/shubhesh07/claude-code-reviewer/issues)
+- [JetBrains Plugin](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer)

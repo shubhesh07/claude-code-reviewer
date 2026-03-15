@@ -1,19 +1,20 @@
 {
   "name": "claude-code-reviewer",
   "displayName": "Claude Code Reviewer",
-  "description": "Review GitHub PRs and GitLab MRs using Claude Code CLI",
-  "version": "0.1.0",
+  "description": "AI code review for GitHub PRs and GitLab MRs powered by Claude — auto-posts inline comments with critical and informational findings",
+  "version": "0.2.1",
   "publisher": "shubhesh07",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/shubhesh07/claude-code-reviewer"
   },
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "keywords": ["claude", "code-review", "github", "gitlab", "AI", "pull-request", "merge-request"],
+  "categories": ["Linters", "Other"],
+  "keywords": ["code review", "claude", "AI review", "pull request", "merge request"],
   "activationEvents": [
     "onStartupFinished"
   ],

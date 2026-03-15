@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#D97757"/>
+      <stop offset="100%" style="stop-color:#C4613F"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.15)"/>
+      <stop offset="100%" style="stop-color:rgba(255,255,255,0)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="248" height="248" rx="48" ry="48" fill="url(#bg)"/>
+  <rect x="4" y="4" width="248" height="248" rx="48" ry="48" fill="url(#shine)"/>
+
+  <!-- Code brackets </> -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left bracket < -->
+    <polyline points="95,80 55,118 95,156"/>
+    <!-- Right bracket > -->
+    <polyline points="161,80 201,118 161,156"/>
+    <!-- Slash / -->
+    <line x1="140" y1="72" x2="116" y2="164"/>
+  </g>
+
+  <!-- Checkmark circle -->
+  <circle cx="128" cy="200" r="28" fill="rgba(255,255,255,0.2)"/>
+  <polyline points="113,200 123,212 143,190" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

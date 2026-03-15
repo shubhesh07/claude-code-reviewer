@@ -12,20 +12,43 @@ Uses the [gstack](https://github.com/garrytan/gstack) two-pass review methodolog
 
 Works with **GitHub** and **GitLab**. Zero config beyond `./setup.sh`.
 
-## VS Code Extension
+## IDE Extensions
 
-Install directly from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer):
+### VS Code
+
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer):
 
 1. Open VS Code → Extensions (`Cmd+Shift+X`)
 2. Search **"Claude Code Reviewer"**
 3. Click **Install**
 
-**Commands:**
+**That's it.** No manual setup needed — the extension auto-installs the CLI tool on first use.
+
+**Commands** (open Command Palette with `Cmd+Shift+P`):
 - `Claude: Review Current PR` — auto-detects your branch's PR/MR and reviews it
 - `Claude: Review PR by URL` — paste any PR/MR URL to review
-- **Status bar** — click "Claude Reviewer" for one-click access
+- **Status bar** — click "Claude Reviewer" in the bottom bar for one-click access
 
-> Requires the CLI tool installed (see below).
+### GoLand / IntelliJ / WebStorm / PyCharm
+
+Install from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30698-claude-code-reviewer):
+
+1. Open Settings → Plugins → Marketplace
+2. Search **"Claude Code Reviewer"**
+3. Click **Install** → Restart IDE
+
+**That's it.** No manual setup needed — the plugin auto-installs the CLI tool on first use.
+
+**Usage:** Go to **Tools** menu:
+- **Review Current PR with Claude** — auto-detects your branch's PR/MR
+- **Review PR by URL with Claude** — paste any PR/MR URL
+
+### Prerequisites (auto-installed)
+
+The IDE extensions automatically install the CLI tool. You just need:
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — `npm install -g @anthropic-ai/claude-code`
+- [gh](https://cli.github.com/) (for GitHub) — `brew install gh && gh auth login`
+- [glab](https://gitlab.com/gitlab-org/cli) (for GitLab) — `brew install glab && glab auth login`
 
 ## One-Command Install (CLI)
 
