@@ -1,6 +1,7 @@
 # claude-code-reviewer
 
 [![GitHub stars](https://img.shields.io/github/stars/shubhesh07/claude-code-reviewer?style=social)](https://github.com/shubhesh07/claude-code-reviewer)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/shubhesh07.claude-code-reviewer?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/badge/GitHub-supported-blue)](https://github.com)
 [![GitLab](https://img.shields.io/badge/GitLab-supported-orange)](https://gitlab.com)
@@ -11,7 +12,22 @@ Uses the [gstack](https://github.com/garrytan/gstack) two-pass review methodolog
 
 Works with **GitHub** and **GitLab**. Zero config beyond `./setup.sh`.
 
-## One-Command Install
+## VS Code Extension
+
+Install directly from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=shubhesh07.claude-code-reviewer):
+
+1. Open VS Code → Extensions (`Cmd+Shift+X`)
+2. Search **"Claude Code Reviewer"**
+3. Click **Install**
+
+**Commands:**
+- `Claude: Review Current PR` — auto-detects your branch's PR/MR and reviews it
+- `Claude: Review PR by URL` — paste any PR/MR URL to review
+- **Status bar** — click "Claude Reviewer" for one-click access
+
+> Requires the CLI tool installed (see below).
+
+## One-Command Install (CLI)
 
 Paste this into **Claude Code** and it handles everything:
 
