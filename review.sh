@@ -504,9 +504,10 @@ ${CHECKLIST}
 git fetch origin ${target_branch} --quiet
 git diff origin/${target_branch}
 \`\`\`
+Review the diff output carefully. Note which files are changed (the \`+++ b/\` headers). You MUST ONLY report findings in these files, on lines that appear in the diff hunks.
 
 ### Step 2: Read source files for context
-For files with potentially problematic changes, read the full file to understand surrounding code. Focus on:
+For changed files with potentially problematic changes, read the full file to understand surrounding code. Focus on:
 - Functions touching databases, authentication, or external services
 - Error handling and recovery paths
 - Concurrency patterns (goroutines, threads, async)
@@ -793,8 +794,8 @@ post_gitlab_findings() {
     log "  WARNING: No valid diff lines found — all findings will be posted as notes"
   fi
 
-  # Post each finding as inline comment (if line is in diff) or as note (if not)
-  local inline_count=0 note_count=0
+  # Post each finding as inline comment (if line is in diff) or skip (if not)
+  local inline_count=0 note_count=0 skipped_count=0
   local i=0
   while [[ $i -lt $total_findings ]]; do
     local path body line
@@ -849,11 +850,9 @@ post_gitlab_findings() {
           -X POST -f body="**${path}:${line}**"$'\n\n'"${body}" 2>/dev/null || true
       fi
     else
-      # Line not in diff — post as note directly
-      note_count=$((note_count + 1))
-      glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" \
-        -X POST -f body="**${path}:${line}**"$'\n\n'"${body}" 2>/dev/null || true
-      log "  Note (not in diff): ${path}:${line}"
+      # Line not in diff — skip (don't pollute Activity with non-diff comments)
+      skipped_count=$((skipped_count + 1))
+      log "  Skipped (not in diff): ${path}:${line}"
     fi
   done
 
@@ -861,11 +860,16 @@ post_gitlab_findings() {
   local summary
   summary="$(echo "$json" | jq -r '.summary // empty')"
   if [[ -n "$summary" ]]; then
-    glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="$summary" 2>/dev/null
+    local summary_extra=""
+    if [[ $skipped_count -gt 0 ]]; then
+      summary_extra=$'\n\n'"_${skipped_count} finding(s) on non-diff lines were omitted._"
+    fi
+    glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST \
+      -f body="${summary}${summary_extra}" 2>/dev/null
     log "  Posted summary comment"
   fi
 
-  log "  Total: ${inline_count} inline + ${note_count} notes posted"
+  log "  Total: ${inline_count} inline, ${note_count} fallback notes, ${skipped_count} skipped (not in diff)"
   return 0
 }
 
