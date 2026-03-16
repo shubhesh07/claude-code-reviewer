@@ -788,10 +788,10 @@ post_gitlab_findings() {
 
     # Check if this line is in the diff (commentable inline)
     if echo "$valid_lines" | grep -qxF "${path}:${line}"; then
-      # Line is in the diff — post as inline comment
+      # Line is in the diff — post as inline comment using temp file (portable across glab versions)
       local post_exit=0
-      local post_result
-      post_result="$(jq -n \
+      local tmp_json="/tmp/gl-comment-$$.json"
+      jq -n \
         --arg body "$body" \
         --arg path "$path" \
         --argjson line "$line" \
@@ -809,8 +809,12 @@ post_gitlab_findings() {
             old_path: $path,
             new_line: $line
           }
-        }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \
-          -X POST -H "Content-Type: application/json" --input - 2>&1)" || post_exit=$?
+        }' > "$tmp_json"
+
+      local post_result
+      post_result="$(glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \
+        -X POST -H "Content-Type: application/json" --input "$tmp_json" 2>&1)" || post_exit=$?
+      rm -f "$tmp_json"
 
       if [[ $post_exit -eq 0 ]]; then
         inline_count=$((inline_count + 1))
@@ -818,7 +822,7 @@ post_gitlab_findings() {
       else
         # Inline failed despite being in diff — fallback to note
         note_count=$((note_count + 1))
-        log "  Inline failed for ${path}:${line}, posting as note"
+        log "  Inline failed for ${path}:${line}: ${post_result}"
         glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" \
           -X POST -f body="**${path}:${line}**"$'\n\n'"${body}" 2>/dev/null || true
       fi
