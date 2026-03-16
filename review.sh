@@ -420,90 +420,52 @@ gitlab_get_clone_url() {
 
 gitlab_build_builtin_prompt() {
   local project_id="$1" mr_iid="$2" diff="$3" diff_refs="$4"
-  local base_sha head_sha start_sha
-  base_sha="$(echo "$diff_refs" | jq -r '.base_commit_sha')"
-  head_sha="$(echo "$diff_refs" | jq -r '.head_commit_sha')"
-  start_sha="$(echo "$diff_refs" | jq -r '.start_commit_sha')"
 
   cat <<PROMPT
-You are a code reviewer. Review this MR diff and post your findings as INLINE comments on the exact lines where issues occur.
-
-## Project ID: ${project_id}
-## MR !${mr_iid}
+You are a code reviewer. Review this MR diff and output your findings as JSON.
 
 ## Review Checklist
 ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Only flag real problems.** Skip anything that's fine.
-- **Be terse.** One line problem, one line fix.
+- **Report ALL issues you find.** Do NOT stop after a few. Every real bug gets its own entry.
+- **One issue per entry.** Short, specific, actionable.
+- **Only flag real bugs.** Do NOT flag: style, formatting, naming, docs, minor refactors.
 
 ## How to Read the Diff
-The diff below shows changed files. Each hunk header looks like:
-  \`@@ -old_start,old_count +new_start,new_count @@ context\`
-Lines starting with \`+\` are additions (new code). The line number for inline comments is the position in the NEW file. Count from \`new_start\` in the hunk header, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
+Each hunk header: \`@@ -old_start,old_count +new_start,new_count @@ context\`
+Lines starting with \`+\` are additions. Line number = position in NEW file. Count from \`new_start\`, skipping deletion lines (\`-\`).
 
-## CRITICAL: Post Inline Comments on Specific Lines
-For EVERY issue you find, you MUST post it as an inline comment on the exact line where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments and only post a summary.
+## Instructions
+Review the diff below. For each issue found, record the file path, line number, and description.
 
-**For each issue, construct a JSON body with \`jq\` and pipe it to \`glab api\`:**
-\`\`\`bash
-jq -n \\
-  --arg body "**[CRITICAL]** or **[INFO]**: <one-line description>
-Fix: <suggested fix>" \\
-  --arg path "<file_path_from_diff>" \\
-  --argjson line <line_number_in_new_file> \\
-  '{
-    body: \$body,
-    position: {
-      position_type: "text",
-      base_sha: "${base_sha}",
-      head_sha: "${head_sha}",
-      start_sha: "${start_sha}",
-      new_path: \$path,
-      old_path: \$path,
-      new_line: \$line
-    }
-  }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -X POST --input -
-\`\`\`
+**How to get path and line:**
+- \`path\`: from \`+++ b/path/to/file.go\` → use \`path/to/file.go\` (no \`b/\` prefix)
+- \`line\`: line number in NEW file. Count from \`new_start\` in hunk header, skipping deletion lines (\`-\`).
 
-**How to determine \`path\` and \`line\`:**
-- \`path\`: from the diff header \`+++ b/path/to/file.go\` → use \`path/to/file.go\` (without the \`b/\` prefix)
-- \`line\`: the line number in the NEW version of the file. Read the hunk header \`@@ -old_start,old_count +new_start,new_count @@\`, then count from \`new_start\`, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
+## Output Format
+Output ONLY a JSON object wrapped in markers. No other text before or after the markers. Do NOT run any commands or post any comments.
 
-**Example:** if diff shows \`+++ b/internal/types/response.go\` with hunk \`@@ -29,10 +29,10 @@\` and the issue is on the 7th non-deletion line in the hunk:
-\`\`\`bash
-jq -n \\
-  --arg body "**[CRITICAL]**: JSON tag typo breaks API contract.
-Fix: Change to correct tag value." \\
-  --arg path "internal/types/response.go" \\
-  --argjson line 35 \\
-  '{
-    body: \$body,
-    position: {
-      position_type: "text",
-      base_sha: "${base_sha}",
-      head_sha: "${head_sha}",
-      start_sha: "${start_sha}",
-      new_path: \$path,
-      old_path: \$path,
-      new_line: \$line
-    }
-  }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -X POST --input -
-\`\`\`
+===REVIEW_JSON_START===
+{
+  "findings": [
+    {"path": "internal/repo/user.go", "line": 42, "body": "**[CRITICAL]**: SQL injection via string interpolation.\\nFix: Use parameterized query."},
+    {"path": "pkg/handler/order.go", "line": 87, "body": "**[INFO]**: Missing nil check on error return.\\nFix: Add if err != nil check."}
+  ],
+  "summary": "Request changes: 2 issues (1 critical, 1 informational)"
+}
+===REVIEW_JSON_END===
 
-**IMPORTANT:** You MUST use this exact \`jq | glab api --input -\` pattern. Do NOT use \`-f "position[...]"\` flags — they produce flat JSON keys instead of nested objects, causing comments to appear in the Overview instead of on the code line.
-
-## After All Inline Comments
-Post ONE summary comment with the overall verdict:
-\`\`\`bash
-glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="<summary>"
-\`\`\`
-The summary should:
-- Start with **LGTM**, **Approve with comments**, or **Request changes**
-- List the count: "N issues (X critical, Y informational)"
+Rules for the JSON:
+- You MUST wrap your JSON output in \`===REVIEW_JSON_START===\` and \`===REVIEW_JSON_END===\` markers exactly as shown above.
+- Include ALL issues found. Do NOT stop at 3. If you found 10 issues, include 10 entries.
+- \`path\`: relative file path (no \`b/\` prefix)
+- \`line\`: integer line number in the new version of the file
+- \`body\`: the comment text. Use \`**[CRITICAL]**:\` or \`**[INFO]**:\` prefix. Include \`Fix:\` suggestion.
+- \`summary\`: start with **LGTM**, **Approve with comments**, or **Request changes**
 - Use **Request changes** only if CRITICAL issues were found
+- If no issues: \`{"findings": [], "summary": "LGTM: No issues found."}\`
 
 ## Diff
 \`\`\`diff
@@ -514,83 +476,61 @@ PROMPT
 
 gitlab_build_gstack_prompt() {
   local project_id="$1" mr_iid="$2" diff_refs="$3" target_branch="$4"
-  local base_sha head_sha start_sha
-  base_sha="$(echo "$diff_refs" | jq -r '.base_commit_sha')"
-  head_sha="$(echo "$diff_refs" | jq -r '.head_commit_sha')"
-  start_sha="$(echo "$diff_refs" | jq -r '.start_commit_sha')"
 
   cat <<PROMPT
-You are a code reviewer performing a pre-landing review using the gstack two-pass methodology. Analyze this branch's diff for structural issues that tests don't catch.
-
-## Project ID: ${project_id}
-## MR !${mr_iid}
+You are a code reviewer performing a pre-landing review. Analyze this branch's diff for structural issues that tests don't catch. Output findings as JSON.
 
 ## Review Checklist
 ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Read-only by default.** Do not modify any files. Only post comments.
-- **Be terse.** One line problem, one line fix. No preamble, no "looks good overall."
-- **Only flag real problems.** Skip anything that's fine.
+- **Read-only by default.** Do not modify any files.
+- **Report ALL issues you find.** Do NOT stop after a few. Every real bug gets its own entry.
+- **One issue per entry.** Short, specific, actionable.
+- **Only flag real bugs.** Do NOT flag: style, formatting, naming, docs, minor refactors.
 - **Respect suppressions.** Do NOT flag items listed in the "DO NOT flag" section.
 
 ## Instructions
 
 ### Step 1: Fetch latest target and get the diff
-Run these commands to get a fresh diff against the target branch:
 \`\`\`
 git fetch origin ${target_branch} --quiet
 git diff origin/${target_branch}
 \`\`\`
 
 ### Step 2: Read source files for context
-For any files with changes that look potentially problematic, read the full file (not just the diff hunks) to understand the surrounding code. This helps avoid false positives. Focus on:
-- Functions that touch databases, authentication, or external services
+For files with potentially problematic changes, read the full file to understand surrounding code. Focus on:
+- Functions touching databases, authentication, or external services
 - Error handling and recovery paths
 - Concurrency patterns (goroutines, threads, async)
 
-### Step 3: Two-pass review
-Apply the checklist against the diff in two passes:
-1. **Pass 1 (CRITICAL):** SQL & Data Safety, Race Conditions & Concurrency, Injection & Trust Boundaries
-2. **Pass 2 (INFORMATIONAL):** Conditional Side Effects, Magic Numbers, Dead Code, Error Handling, Test Gaps, Performance, API Contracts, LLM Prompt Issues, Crypto & Entropy, Time Window Safety, Type Coercion
+### Step 3: Output findings as JSON
+After analyzing the diff and reading source files, output ONLY a JSON object wrapped in markers. No other text before or after the markers. Do NOT run any glab or posting commands.
 
-### Step 4: Post INLINE Comments on Specific Lines
-CRITICAL: For EVERY issue you find, you MUST post it as an inline comment on the exact line of code where the issue occurs. Do NOT combine multiple issues into one comment. Do NOT skip inline comments.
+**How to get path and line:**
+- \`path\`: from \`git diff\` output, \`+++ b/path/to/file.go\` → use \`path/to/file.go\`
+- \`line\`: line number in NEW file. Count from \`new_start\` in hunk header, skipping deletion lines (\`-\`).
 
-**For each issue, construct a JSON body with \`jq\` and pipe it to \`glab api\`:**
-\`\`\`bash
-jq -n \\
-  --arg body "**[CRITICAL]** or **[INFO]**: <one-line problem>
-Fix: <suggested fix>" \\
-  --arg path "<file_path_from_diff>" \\
-  --argjson line <line_number_in_new_file> \\
-  '{
-    body: \$body,
-    position: {
-      position_type: "text",
-      base_sha: "${base_sha}",
-      head_sha: "${head_sha}",
-      start_sha: "${start_sha}",
-      new_path: \$path,
-      old_path: \$path,
-      new_line: \$line
-    }
-  }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" -X POST --input -
-\`\`\`
+===REVIEW_JSON_START===
+{
+  "findings": [
+    {"path": "internal/repo/user.go", "line": 42, "body": "**[CRITICAL]**: SQL injection via string interpolation.\\nFix: Use parameterized query."},
+    {"path": "pkg/handler/order.go", "line": 87, "body": "**[INFO]**: Missing nil check on error return.\\nFix: Add if err != nil check."}
+  ],
+  "summary": "Request changes: 2 issues (1 critical, 1 informational)"
+}
+===REVIEW_JSON_END===
 
-**How to determine \`path\` and \`line\`:**
-- \`path\`: from \`git diff\` output, look at \`+++ b/path/to/file.go\` → use \`path/to/file.go\`
-- \`line\`: from the hunk header \`@@ -old_start,old_count +new_start,new_count @@\`, count from \`new_start\`, incrementing for every line that is NOT a deletion (lines starting with \`-\`).
-
-**IMPORTANT:** You MUST use this exact \`jq | glab api --input -\` pattern. Do NOT use \`-f "position[...]"\` flags — they produce flat JSON keys instead of nested objects, causing comments to appear in the Overview instead of on the code line.
-
-### Step 5: Post Summary
-After all inline comments, post ONE summary:
-\`\`\`bash
-glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="<summary>"
-\`\`\`
-Start with **LGTM**, **Approve with comments**, or **Request changes** (only for CRITICAL issues).
+Rules for the JSON:
+- You MUST wrap your JSON output in \`===REVIEW_JSON_START===\` and \`===REVIEW_JSON_END===\` markers exactly as shown above.
+- Include ALL issues found. Do NOT stop at 3. If you found 10 issues, include 10 entries.
+- \`path\`: relative file path (no \`b/\` prefix)
+- \`line\`: integer line number in the new version of the file
+- \`body\`: the comment text. Use \`**[CRITICAL]**:\` or \`**[INFO]**:\` prefix. Include \`Fix:\` suggestion.
+- \`summary\`: start with **LGTM**, **Approve with comments**, or **Request changes**
+- Use **Request changes** only if CRITICAL issues were found
+- If no issues: \`{"findings": [], "summary": "LGTM: No issues found."}\`
 PROMPT
 }
 
@@ -679,6 +619,8 @@ mark_reviewed() {
   echo "$url" >> "$STATE_FILE"
 }
 
+LAST_CLAUDE_OUTPUT=""
+
 run_claude() {
   local prompt="$1"
   local workdir="${2:-}"
@@ -692,7 +634,7 @@ run_claude() {
     tools+=("Bash(git:*)" "Bash(cat:*)" "Bash(mkdir:*)" "Bash(echo:*)" "Read" "Grep" "Glob")
   fi
 
-  local cmd=(claude -p --verbose)
+  local cmd=(claude -p --verbose --max-budget-usd 5)
   for tool in "${tools[@]}"; do
     cmd+=(--allowedTools "$tool")
   done
@@ -703,15 +645,20 @@ run_claude() {
 
   local prompt_size=${#prompt}
   log "  Sending prompt to Claude (${prompt_size} chars, mode: ${mode})..."
-  log "  Claude is reviewing — this may take 1-3 minutes..."
+  log "  Claude is reviewing — this may take a few minutes..."
 
-  # Stream both stdout and stderr to terminal
+  # Capture output to temp file while streaming to terminal
+  local output_file="/tmp/claude-review-output-$$"
+
   if [[ "$mode" == "gstack" && -n "$workdir" ]]; then
-    (cd "$workdir" && echo "$prompt" | "${cmd[@]}") 2>&1
+    (cd "$workdir" && echo "$prompt" | "${cmd[@]}") 2>&1 | tee "$output_file"
   else
-    echo "$prompt" | "${cmd[@]}" 2>&1
+    echo "$prompt" | "${cmd[@]}" 2>&1 | tee "$output_file"
   fi
-  local exit_code=$?
+  local exit_code=${PIPESTATUS[0]}
+
+  LAST_CLAUDE_OUTPUT="$(cat "$output_file" 2>/dev/null)"
+  rm -f "$output_file"
 
   if [[ $exit_code -eq 0 ]]; then
     log "  Claude finished successfully."
@@ -720,6 +667,138 @@ run_claude() {
   fi
 
   return $exit_code
+}
+
+# ─── GitLab Comment Posting ───────────────────────────────────────────────────
+
+# Post Claude's JSON findings as inline GitLab MR comments
+# Claude outputs JSON wrapped in ===REVIEW_JSON_START=== / ===REVIEW_JSON_END=== markers
+post_gitlab_findings() {
+  local claude_output="$1"
+  local project_id="$2" mr_iid="$3" diff_refs="$4"
+
+  local base_sha head_sha start_sha
+  base_sha="$(echo "$diff_refs" | jq -r '.base_commit_sha')"
+  head_sha="$(echo "$diff_refs" | jq -r '.head_commit_sha')"
+  start_sha="$(echo "$diff_refs" | jq -r '.start_commit_sha')"
+
+  log "  Extracting JSON findings from Claude output (${#claude_output} chars)..."
+
+  # Extract JSON findings from Claude's output using multiple strategies
+  local json=""
+
+  # Method 1: Extract between ===REVIEW_JSON_START=== and ===REVIEW_JSON_END=== markers (most reliable)
+  if echo "$claude_output" | grep -q '===REVIEW_JSON_START==='; then
+    json="$(echo "$claude_output" | sed -n '/===REVIEW_JSON_START===/,/===REVIEW_JSON_END===/{
+      /===REVIEW_JSON_START===/d
+      /===REVIEW_JSON_END===/d
+      p
+    }')"
+    log "  Extraction method: markers"
+  fi
+
+  # Method 2: Extract from ```json code block
+  if [[ -z "$json" ]] || ! echo "$json" | jq -e '.findings' &>/dev/null; then
+    json="$(echo "$claude_output" | sed -n '/```json/,/```/{/```/d;p;}' | head -200)"
+    [[ -n "$json" ]] && log "  Extraction method: code block"
+  fi
+
+  # Method 3: Find last JSON block that starts with { on its own line
+  if [[ -z "$json" ]] || ! echo "$json" | jq -e '.findings' &>/dev/null; then
+    json="$(echo "$claude_output" | awk '
+      /^[[:space:]]*\{/ { capture=1; buf="" }
+      capture { buf = buf "\n" $0 }
+      /^[[:space:]]*\}/ && capture { if (buf ~ "findings") last=buf; capture=0 }
+      END { if (last) print last }
+    ')"
+    [[ -n "$json" ]] && log "  Extraction method: awk block scan"
+  fi
+
+  # Method 4: Try to parse the last 200 lines as JSON (Claude might output it at the end)
+  if [[ -z "$json" ]] || ! echo "$json" | jq -e '.findings' &>/dev/null; then
+    json="$(echo "$claude_output" | tail -200 | sed -n '/^[[:space:]]*{/,/^[[:space:]]*}/p')"
+    [[ -n "$json" ]] && log "  Extraction method: tail block"
+  fi
+
+  # Validate JSON has .findings array
+  if [[ -z "$json" ]] || ! echo "$json" | jq -e '.findings' &>/dev/null; then
+    log "  WARNING: Could not extract JSON findings from Claude output"
+    log "  Posting Claude's raw output as a note instead"
+    # Extract just the text after the last tool output (likely the review summary)
+    local raw_body
+    raw_body="$(echo "$claude_output" | tail -80 | head -60)"
+    if [[ -n "$raw_body" ]]; then
+      glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="$raw_body" 2>/dev/null || true
+    fi
+    return 1
+  fi
+
+  local total_findings
+  total_findings="$(echo "$json" | jq '.findings | length' 2>/dev/null || echo 0)"
+  log "  Found ${total_findings} findings in JSON"
+
+  # Post each finding as an inline comment
+  local finding_count=0 fail_count=0
+  local i=0
+  while [[ $i -lt $total_findings ]]; do
+    local path body line
+    path="$(echo "$json" | jq -r ".findings[$i].path")"
+    line="$(echo "$json" | jq -r ".findings[$i].line")"
+    body="$(echo "$json" | jq -r ".findings[$i].body")"
+    i=$((i + 1))
+
+    if [[ -z "$path" || "$path" == "null" || -z "$line" || "$line" == "null" ]]; then
+      log "  Skipping finding #${i}: missing path or line"
+      continue
+    fi
+
+    # Post inline comment with position data via discussions endpoint
+    local post_exit=0
+    local post_result
+    post_result="$(jq -n \
+      --arg body "$body" \
+      --arg path "$path" \
+      --argjson line "$line" \
+      --arg base_sha "$base_sha" \
+      --arg head_sha "$head_sha" \
+      --arg start_sha "$start_sha" \
+      '{
+        body: $body,
+        position: {
+          position_type: "text",
+          base_sha: $base_sha,
+          head_sha: $head_sha,
+          start_sha: $start_sha,
+          new_path: $path,
+          old_path: $path,
+          new_line: $line
+        }
+      }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \
+        -X POST -H "Content-Type: application/json" --input - 2>&1)" || post_exit=$?
+
+    if [[ $post_exit -eq 0 ]]; then
+      finding_count=$((finding_count + 1))
+      log "  Posted inline comment ${finding_count}/${total_findings}: ${path}:${line}"
+    else
+      fail_count=$((fail_count + 1))
+      log "  Failed to post on ${path}:${line} — ${post_result}"
+      # Fallback: post as a regular note so the comment isn't lost
+      glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" \
+        -X POST -f body="**${path}:${line}**\n\n${body}" 2>/dev/null || true
+      log "  Posted as note instead (will appear in Activity)"
+    fi
+  done
+
+  # Post summary as a note
+  local summary
+  summary="$(echo "$json" | jq -r '.summary // empty')"
+  if [[ -n "$summary" ]]; then
+    glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" -X POST -f body="$summary" 2>/dev/null
+    log "  Posted summary comment"
+  fi
+
+  log "  Total: ${finding_count} inline + ${fail_count} fallback notes posted"
+  return 0
 }
 
 review_github() {
@@ -877,6 +956,7 @@ review_gitlab() {
         log "  Building gstack prompt..."
         prompt="$(gitlab_build_gstack_prompt "$project_id" "$mr_iid" "$diff_refs" "$target_branch")"
         if run_claude "$prompt" "$clone_dir" "gstack"; then
+          post_gitlab_findings "$LAST_CLAUDE_OUTPUT" "$project_id" "$mr_iid" "$diff_refs"
           review_ok=true
         fi
       else
@@ -888,6 +968,7 @@ review_gitlab() {
           log "  Diff fetched (${#diff} chars). Building prompt..."
           prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
           if run_claude "$prompt" "" "builtin"; then
+            post_gitlab_findings "$LAST_CLAUDE_OUTPUT" "$project_id" "$mr_iid" "$diff_refs"
             review_ok=true
           fi
         fi
@@ -905,6 +986,7 @@ review_gitlab() {
       log "  Diff fetched (${#diff} chars). Building prompt..."
       prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
       if run_claude "$prompt" "" "builtin"; then
+        post_gitlab_findings "$LAST_CLAUDE_OUTPUT" "$project_id" "$mr_iid" "$diff_refs"
         review_ok=true
       fi
     fi
@@ -1063,6 +1145,7 @@ review_single_gitlab_mr() {
       log "  Building gstack prompt..."
       prompt="$(gitlab_build_gstack_prompt "$project_id" "$mr_iid" "$diff_refs" "$target_branch")"
       if run_claude "$prompt" "$clone_dir" "gstack"; then
+        post_gitlab_findings "$LAST_CLAUDE_OUTPUT" "$project_id" "$mr_iid" "$diff_refs"
         review_ok=true
       fi
     else
@@ -1074,6 +1157,7 @@ review_single_gitlab_mr() {
         log "  Diff fetched (${#diff} chars). Building prompt..."
         prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
         if run_claude "$prompt" "" "builtin"; then
+          post_gitlab_findings "$LAST_CLAUDE_OUTPUT" "$project_id" "$mr_iid" "$diff_refs"
           review_ok=true
         fi
       fi
@@ -1088,6 +1172,7 @@ review_single_gitlab_mr() {
     log "  Diff fetched (${#diff} chars). Building prompt..."
     prompt="$(gitlab_build_builtin_prompt "$project_id" "$mr_iid" "$diff" "$diff_refs")"
     if run_claude "$prompt" "" "builtin"; then
+      post_gitlab_findings "$LAST_CLAUDE_OUTPUT" "$project_id" "$mr_iid" "$diff_refs"
       review_ok=true
     fi
   fi

@@ -37,7 +37,7 @@ fi
 echo ""
 read -rp "  Remove config.env, reviewed-prs.txt, and logs? [y/N]: " remove_data
 
-if [[ "${remove_data,,}" == "y" ]]; then
+if [[ "$(echo "$remove_data" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
   rm -f "$SCRIPT_DIR/config.env"
   rm -f "$SCRIPT_DIR/reviewed-prs.txt"
   rm -f "$SCRIPT_DIR/review.log"

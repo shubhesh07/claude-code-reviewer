@@ -164,7 +164,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
   else
     warn "config.env already exists."
     read -rp "  Overwrite? [y/N]: " overwrite
-    if [[ "${overwrite,,}" == "y" ]]; then
+    if [[ "$(echo "$overwrite" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
       create_config
       ok "config.env updated"
     else
@@ -206,7 +206,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     else
       warn "launchd plist already exists."
       read -rp "  Overwrite? [y/N]: " overwrite
-      if [[ "${overwrite,,}" != "y" ]]; then
+      if [[ "$(echo "$overwrite" | tr '[:upper:]' '[:lower:]')" != "y" ]]; then
         install_scheduler=false
         info "Keeping existing scheduler"
       fi
@@ -249,7 +249,7 @@ PLIST
       ok "Scheduler loaded — reviews will run every ${interval}s"
     else
       read -rp "  Load scheduler now? [Y/n]: " load_now
-      if [[ "${load_now,,}" != "n" ]]; then
+      if [[ "$(echo "$load_now" | tr '[:upper:]' '[:lower:]')" != "n" ]]; then
         launchctl unload "$PLIST_PATH" 2>/dev/null || true
         launchctl load "$PLIST_PATH"
         ok "Scheduler loaded — reviews will run every ${interval}s"
@@ -267,7 +267,7 @@ else
     else
       warn "Crontab entry already exists."
       read -rp "  Replace? [y/N]: " overwrite
-      if [[ "${overwrite,,}" == "y" ]]; then
+      if [[ "$(echo "$overwrite" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
         (crontab -l 2>/dev/null | grep -vF "$REVIEW_SCRIPT"; echo "$cron_entry") | crontab -
         ok "Crontab updated"
       fi
