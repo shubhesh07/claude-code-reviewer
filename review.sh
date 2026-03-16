@@ -675,7 +675,7 @@ run_claude() {
 # Output: one "path:line" per line for each commentable position in the diff
 extract_diff_lines() {
   local diff="$1"
-  echo "$diff" | awk '
+  echo "$diff" | tr -d '\r' | awk '
     /^\+\+\+ / {
       file = $2
       sub(/^b\//, "", file)
@@ -698,6 +698,13 @@ extract_diff_lines() {
     }
     /^-/ && file { next }
   '
+}
+
+# Fetch diff for an MR using the changes API (single call, more reliable)
+gitlab_get_diff_for_positions() {
+  local project_id="$1" mr_iid="$2"
+  glab api "projects/${project_id}/merge_requests/${mr_iid}/changes?per_page=100" 2>/dev/null \
+    | jq -r '.changes[] | "--- a/\(.old_path)\n+++ b/\(.new_path)\n\(.diff)"' 2>/dev/null || echo ""
 }
 
 # Post Claude's JSON findings as inline GitLab MR comments
@@ -767,9 +774,18 @@ post_gitlab_findings() {
 
   # Fetch diff to determine which lines are commentable inline
   log "  Fetching diff to validate inline positions..."
-  local mr_diff valid_lines
-  mr_diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
+  local mr_diff valid_lines valid_count
+  mr_diff="$(gitlab_get_diff_for_positions "$project_id" "$mr_iid")"
+  if [[ -z "$mr_diff" ]]; then
+    log "  WARNING: Changes API returned empty, trying versions API..."
+    mr_diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
+  fi
   valid_lines="$(extract_diff_lines "$mr_diff")"
+  valid_count="$(echo "$valid_lines" | grep -c . 2>/dev/null || echo 0)"
+  log "  Diff parsed: ${valid_count} commentable line positions"
+  if [[ "$valid_count" -eq 0 ]]; then
+    log "  WARNING: No valid diff lines found — all findings will be posted as notes"
+  fi
 
   # Post each finding as inline comment (if line is in diff) or as note (if not)
   local inline_count=0 note_count=0
