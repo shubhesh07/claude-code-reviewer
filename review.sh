@@ -671,6 +671,35 @@ run_claude() {
 
 # ─── GitLab Comment Posting ───────────────────────────────────────────────────
 
+# Extract valid new-side line positions from a unified diff
+# Output: one "path:line" per line for each commentable position in the diff
+extract_diff_lines() {
+  local diff="$1"
+  echo "$diff" | awk '
+    /^\+\+\+ / {
+      file = $2
+      sub(/^b\//, "", file)
+      next
+    }
+    /^@@ / {
+      split($3, parts, /[+,]/)
+      new_line = parts[2] + 0
+      next
+    }
+    /^\+/ && file {
+      print file ":" new_line
+      new_line++
+      next
+    }
+    /^ / && file {
+      print file ":" new_line
+      new_line++
+      next
+    }
+    /^-/ && file { next }
+  '
+}
+
 # Post Claude's JSON findings as inline GitLab MR comments
 # Claude outputs JSON wrapped in ===REVIEW_JSON_START=== / ===REVIEW_JSON_END=== markers
 post_gitlab_findings() {
@@ -724,7 +753,6 @@ post_gitlab_findings() {
   if [[ -z "$json" ]] || ! echo "$json" | jq -e '.findings' &>/dev/null; then
     log "  WARNING: Could not extract JSON findings from Claude output"
     log "  Posting Claude's raw output as a note instead"
-    # Extract just the text after the last tool output (likely the review summary)
     local raw_body
     raw_body="$(echo "$claude_output" | tail -80 | head -60)"
     if [[ -n "$raw_body" ]]; then
@@ -737,8 +765,14 @@ post_gitlab_findings() {
   total_findings="$(echo "$json" | jq '.findings | length' 2>/dev/null || echo 0)"
   log "  Found ${total_findings} findings in JSON"
 
-  # Post each finding as an inline comment
-  local finding_count=0 fail_count=0
+  # Fetch diff to determine which lines are commentable inline
+  log "  Fetching diff to validate inline positions..."
+  local mr_diff valid_lines
+  mr_diff="$(gitlab_get_diff "$project_id" "$mr_iid")"
+  valid_lines="$(extract_diff_lines "$mr_diff")"
+
+  # Post each finding as inline comment (if line is in diff) or as note (if not)
+  local inline_count=0 note_count=0
   local i=0
   while [[ $i -lt $total_findings ]]; do
     local path body line
@@ -752,40 +786,48 @@ post_gitlab_findings() {
       continue
     fi
 
-    # Post inline comment with position data via discussions endpoint
-    local post_exit=0
-    local post_result
-    post_result="$(jq -n \
-      --arg body "$body" \
-      --arg path "$path" \
-      --argjson line "$line" \
-      --arg base_sha "$base_sha" \
-      --arg head_sha "$head_sha" \
-      --arg start_sha "$start_sha" \
-      '{
-        body: $body,
-        position: {
-          position_type: "text",
-          base_sha: $base_sha,
-          head_sha: $head_sha,
-          start_sha: $start_sha,
-          new_path: $path,
-          old_path: $path,
-          new_line: $line
-        }
-      }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \
-        -X POST -H "Content-Type: application/json" --input - 2>&1)" || post_exit=$?
+    # Check if this line is in the diff (commentable inline)
+    if echo "$valid_lines" | grep -qF "${path}:${line}"; then
+      # Line is in the diff — post as inline comment
+      local post_exit=0
+      local post_result
+      post_result="$(jq -n \
+        --arg body "$body" \
+        --arg path "$path" \
+        --argjson line "$line" \
+        --arg base_sha "$base_sha" \
+        --arg head_sha "$head_sha" \
+        --arg start_sha "$start_sha" \
+        '{
+          body: $body,
+          position: {
+            position_type: "text",
+            base_sha: $base_sha,
+            head_sha: $head_sha,
+            start_sha: $start_sha,
+            new_path: $path,
+            old_path: $path,
+            new_line: $line
+          }
+        }' | glab api "projects/${project_id}/merge_requests/${mr_iid}/discussions" \
+          -X POST -H "Content-Type: application/json" --input - 2>&1)" || post_exit=$?
 
-    if [[ $post_exit -eq 0 ]]; then
-      finding_count=$((finding_count + 1))
-      log "  Posted inline comment ${finding_count}/${total_findings}: ${path}:${line}"
+      if [[ $post_exit -eq 0 ]]; then
+        inline_count=$((inline_count + 1))
+        log "  Inline ${inline_count}: ${path}:${line}"
+      else
+        # Inline failed despite being in diff — fallback to note
+        note_count=$((note_count + 1))
+        log "  Inline failed for ${path}:${line}, posting as note"
+        glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" \
+          -X POST -f body="**${path}:${line}**"$'\n\n'"${body}" 2>/dev/null || true
+      fi
     else
-      fail_count=$((fail_count + 1))
-      log "  Failed to post on ${path}:${line} — ${post_result}"
-      # Fallback: post as a regular note so the comment isn't lost
+      # Line not in diff — post as note directly
+      note_count=$((note_count + 1))
       glab api "projects/${project_id}/merge_requests/${mr_iid}/notes" \
-        -X POST -f body="**${path}:${line}**\n\n${body}" 2>/dev/null || true
-      log "  Posted as note instead (will appear in Activity)"
+        -X POST -f body="**${path}:${line}**"$'\n\n'"${body}" 2>/dev/null || true
+      log "  Note (not in diff): ${path}:${line}"
     fi
   done
 
@@ -797,7 +839,7 @@ post_gitlab_findings() {
     log "  Posted summary comment"
   fi
 
-  log "  Total: ${finding_count} inline + ${fail_count} fallback notes posted"
+  log "  Total: ${inline_count} inline + ${note_count} notes posted"
   return 0
 }
 
