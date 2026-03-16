@@ -787,7 +787,7 @@ post_gitlab_findings() {
     fi
 
     # Check if this line is in the diff (commentable inline)
-    if echo "$valid_lines" | grep -qF "${path}:${line}"; then
+    if echo "$valid_lines" | grep -qxF "${path}:${line}"; then
       # Line is in the diff — post as inline comment
       local post_exit=0
       local post_result
