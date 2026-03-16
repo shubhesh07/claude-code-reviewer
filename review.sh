@@ -235,6 +235,7 @@ ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
+- **ONLY review files and lines in the diff.** Do NOT report issues in other files.
 - **Only flag real problems.** Skip anything that's fine.
 - **Be terse.** One line problem, one line fix.
 
@@ -314,6 +315,7 @@ ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
+- **ONLY review files and lines in the diff.** Do NOT report issues in other files, even if you read them for context.
 - **Read-only by default.** Do not modify any files. Only post comments.
 - **Be terse.** One line problem, one line fix. No preamble, no "looks good overall."
 - **Only flag real problems.** Skip anything that's fine.
@@ -429,9 +431,11 @@ ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Report ALL issues you find.** Do NOT stop after a few. Every real bug gets its own entry.
+- **ONLY review files and lines that appear in the diff.** Do NOT report issues in other files, even if you read them for context.
+- **Report ALL issues you find in the diff.** Do NOT stop after a few. Every real bug gets its own entry.
 - **One issue per entry.** Short, specific, actionable.
 - **Only flag real bugs.** Do NOT flag: style, formatting, naming, docs, minor refactors.
+- **path and line MUST come from the diff.** The path must match a \`+++ b/\` header and the line must be within a diff hunk.
 
 ## How to Read the Diff
 Each hunk header: \`@@ -old_start,old_count +new_start,new_count @@ context\`
@@ -485,11 +489,13 @@ ${CHECKLIST}
 
 ## Important Rules
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
+- **ONLY review files and lines that appear in the diff.** Do NOT report issues in other files, even if you read them for context. Reading other files is for understanding — not for flagging.
 - **Read-only by default.** Do not modify any files.
-- **Report ALL issues you find.** Do NOT stop after a few. Every real bug gets its own entry.
+- **Report ALL issues you find in the diff.** Do NOT stop after a few. Every real bug gets its own entry.
 - **One issue per entry.** Short, specific, actionable.
 - **Only flag real bugs.** Do NOT flag: style, formatting, naming, docs, minor refactors.
 - **Respect suppressions.** Do NOT flag items listed in the "DO NOT flag" section.
+- **path and line MUST come from the diff.** The path must match a \`+++ b/\` header in the diff output and the line must be within a diff hunk.
 
 ## Instructions
 
