@@ -310,3 +310,10 @@ Review methodology based on [gstack](https://github.com/garrytan/gstack) by Garr
 ## License
 
 MIT
+
+---
+
+## Also by Shubhesh
+
+- **[DB Connect](https://github.com/shubhesh07/db-connect)** — Free desktop database IDE for MySQL, Redshift & DynamoDB. Alternative to DataGrip, DBeaver, TablePlus. ([Download](https://shubhesh07.github.io/db-connect))
+- **[Go DB Manager](https://github.com/shubhesh07/go-db-manager)** — Spring JPA-style ORM for Go with automatic query generation from method names.
